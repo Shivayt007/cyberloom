@@ -141,78 +141,147 @@ async def can_request_public(hostname: str, cache: dict[str, bool]) -> bool:
 
 
 async def click_continue(page) -> tuple[bool, str]:
-    """Click a visible, enabled Continue control in the current browser tab.
+    """Activate visible Continue controls using normal browser clicks.
 
-    Stackmint's purple CTA can be rendered as a styled <div>/<span> rather
-    than a native button. Playwright's get_by_text() clicks the rendered
-    text and bubbles the user click to its handler, without forcing clicks
-    through overlays or human-verification challenges.
+    Try the interactive parent before text spans. If the locator's actionability
+    check times out, make one physical Playwright mouse click only when
+    hit-testing confirms the actual CTA is unobstructed. Do not force-click
+    through an overlay or verification challenge.
     """
+    if await needs_human_verification(page):
+        return False, "Human verification present; automatic clicks are disabled"
+
     specific = re.compile(r"continue\s+to\s+destination", re.I)
     generic = re.compile(r"\b(continue|proceed|get\s*link|open\s*link|next\s*step)\b", re.I)
     errors: list[str] = []
-    detected: list[str] = []
+
+    def why_click_failed(exc: Exception) -> str:
+        detail = str(exc)
+        for needle, summary in (
+            ("intercepts pointer events", "another element intercepts pointer events"),
+            ("element is not stable", "element is moving or animating"),
+            ("element is outside of the viewport", "control is outside the viewport"),
+            ("Element is not attached", "control was replaced in the page"),
+            ("element is not enabled", "control is disabled"),
+        ):
+            if needle.lower() in detail.lower():
+                return summary
+        return detail.splitlines()[0][:120] if detail else "click failed"
+
+    async def try_click(control, label: str) -> tuple[bool, str] | None:
+        try:
+            if not await control.is_visible() or not await control.is_enabled():
+                return None
+        except (PlaywrightError, PlaywrightTimeout):
+            return None
+
+        before_url = page.url
+        before_tabs = len(page.context.pages)
+        try:
+            # More time than the former 2300ms; the target can be animating.
+            await control.click(timeout=5000)
+            return True, label + " · normal click"
+        except (PlaywrightError, PlaywrightTimeout) as exc:
+            # A slow redirect/pop-up may already have been triggered.
+            if page.url != before_url or len(page.context.pages) > before_tabs:
+                return True, label + " · navigation triggered"
+
+            reason = why_click_failed(exc)
+            # Playwright locator.click can time out if a transform never
+            # becomes stable. In that case use the browser's real mouse, but
+            # only if the intended Continue control receives the pointer.
+            try:
+                info = await control.evaluate("""el => {
+                    const r = el.getBoundingClientRect();
+                    const x = r.left + r.width / 2;
+                    const y = r.top + r.height / 2;
+                    const hit = document.elementFromPoint(x, y);
+                    const owner = el.closest(
+                        'a,button,[role="button"],[onclick],[tabindex]'
+                    );
+                    const safe = !!hit && (
+                        hit === el || el.contains(hit) ||
+                        (!!owner && (hit === owner || owner.contains(hit)))
+                    );
+                    return {
+                        safe,
+                        tag: el.tagName.toLowerCase(),
+                        hit: hit ? hit.tagName.toLowerCase() : "none",
+                        overlay: (!safe && hit)
+                            ? (hit.tagName.toLowerCase() + " " +
+                                (hit.getAttribute("class") || "").slice(0, 60))
+                            : "",
+                        centerVisible: x >= 0 && y >= 0 &&
+                            x < window.innerWidth && y < window.innerHeight
+                    };
+                }""", timeout=1200)
+                box = await control.bounding_box(timeout=1200)
+                if info.get("safe") and info.get("centerVisible") and box:
+                    if box["width"] >= 3 and box["height"] >= 3:
+                        # Frame element coordinates are already mapped to the
+                        # main viewport by Playwright's bounding_box().
+                        await page.mouse.click(
+                            box["x"] + box["width"] / 2,
+                            box["y"] + box["height"] / 2,
+                            timeout=1800
+                        )
+                        return True, label + " · verified unobstructed mouse click"
+                errors.append(
+                    label + ": " + reason +
+                    ("; element blocked by " + str(info.get("overlay"))
+                     if info.get("overlay") else
+                     "; center not reachable (tag " + str(info.get("tag")) + ")")
+                )
+            except (PlaywrightError, PlaywrightTimeout) as detail_exc:
+                errors.append(label + ": " + reason + " · hit-test: " +
+                              why_click_failed(detail_exc))
+            return None
 
     for frame in page.frames:
-        # Highest priority: the exact CTA seen in Stackmint screenshot.
-        text_locator = frame.get_by_text(specific)
-        try:
-            text_count = min(await text_locator.count(), 8)
-        except (PlaywrightError, PlaywrightTimeout) as exc:
-            errors.append("Text scan failed: " + str(exc).splitlines()[0][:90])
-            continue
-        for i in range(text_count):
-            control = text_locator.nth(i)
+        # Prioritize clickable elements; clicking a text-only span can cause
+        # Playwright to wait on a non-interactive child rather than its parent.
+        groups = [
+            ("destination link", frame.get_by_role("link", name=specific)),
+            ("destination button", frame.get_by_role("button", name=specific)),
+            ("destination clickable", frame.locator(
+                'a:visible,button:visible,[role="button"]:visible,'
+                '[onclick]:visible,[tabindex]:visible'
+            ).filter(has_text=specific)),
+            ("destination text", frame.get_by_text(specific)),
+        ]
+        found_specific = False
+        for label, group in groups:
             try:
-                if not await control.is_visible() or not await control.is_enabled():
-                    continue
-                tag = await control.evaluate("(el) => el.tagName.toLowerCase()", timeout=900)
-                detected.append("Continue to Destination <" + tag + ">")
-                await control.click(timeout=2300)
-                return True, "Continue to Destination <" + tag + ">"
-            except (PlaywrightError, PlaywrightTimeout) as exc:
-                errors.append("Text CTA click blocked: " + str(exc).splitlines()[0][:145])
+                count = min(await group.count(), 3)
+            except (PlaywrightError, PlaywrightTimeout):
+                continue
+            if count:
+                found_specific = True
+            # Prefer the innermost matching text target after interactive groups.
+            for i in reversed(range(count)):
+                result = await try_click(group.nth(i), label)
+                if result and result[0]:
+                    return result
 
-        # Some sites use a labelled anchor, div with click handler, or
-        # accessibility role instead of the expected text node.
-        selector = (
-            "a:visible, button:visible, [role=button]:visible, "
-            "[onclick]:visible, [tabindex]:visible, "
-            "input[type=button]:visible, input[type=submit]:visible"
-        )
+        if found_specific:
+            continue
+
+        # Generic Continue controls for other steps in the chain.
+        group = frame.locator(
+            'a:visible,button:visible,[role="button"]:visible,'
+            '[onclick]:visible,[tabindex]:visible'
+        ).filter(has_text=generic)
         try:
-            matches = frame.locator(selector).filter(has_text=generic)
-            count = min(await matches.count(), 16)
-            for i in range(count):
-                control = matches.nth(i)
-                try:
-                    if not await control.is_visible() or not await control.is_enabled():
-                        continue
-                    tag = await control.evaluate("(el) => el.tagName.toLowerCase()", timeout=900)
-                    label = (await control.inner_text(timeout=900)).strip()[:75]
-                    detected.append(label or "<" + tag + ">")
-                    await control.click(timeout=2300)
-                    return True, (label or "Continue") + " <" + tag + ">"
-                except (PlaywrightError, PlaywrightTimeout) as exc:
-                    errors.append("Control click blocked: " + str(exc).splitlines()[0][:145])
-            inputs = frame.locator('input[value]:visible')
-            for i in range(min(await inputs.count(), 12)):
-                control = inputs.nth(i)
-                try:
-                    label = (await control.get_attribute("value")) or ""
-                    if generic.search(label) and await control.is_enabled():
-                        detected.append(label[:65] + " <input>")
-                        await control.click(timeout=2300)
-                        return True, label[:65] + " <input>"
-                except (PlaywrightError, PlaywrightTimeout) as exc:
-                    errors.append("Input click blocked: " + str(exc).splitlines()[0][:145])
-        except (PlaywrightError, PlaywrightTimeout) as exc:
-            errors.append("Control scan failed: " + str(exc).splitlines()[0][:110])
+            count = min(await group.count(), 4)
+            for i in reversed(range(count)):
+                result = await try_click(group.nth(i), "Continue")
+                if result and result[0]:
+                    return result
+        except (PlaywrightError, PlaywrightTimeout):
+            pass
 
     if errors:
-        return False, "; ".join(errors[:2])
-    if detected:
-        return False, "Found a Continue control, but could not activate it"
+        return False, " | ".join(errors[:2])[:460]
     return False, "No actionable Continue control detected"
 
 
