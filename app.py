@@ -76,16 +76,18 @@ def event(kind: str, **data) -> bytes:
 
 
 def is_m1_direct_label(label: str) -> bool:
-    """Recognize the MessyCloud server name [M1] DIRECT."""
-    return bool(re.search(r"\[?\s*m1\s*\]?\s*[-:–]?\s*direct\b", label or "", re.I))
+    """Recognize a visible [M1] DIRECT server button."""
+    return bool(re.search(r"\[\s*m1\s*\]\s*direct\b", label or "", re.I))
 
 
 def link_score(url: str, label: str = "") -> str:
     if is_m1_direct_label(label):
         return "M1 DIRECT"
+    if re.search(r"\[\s*m\d+\s*\]", label or "", re.I):
+        return "Server link"
     parsed = urlsplit(url)
     if (parsed.hostname == "cdn.juicybits.site"
-            or re.search(r"\.(?:zip|mp4|mkv|rar|7z|pdf)(?:$|[?#])",
+            or re.search(r"\.(?:zip|mp4|mkv|rar|7z|pdf|avi|webm)(?:$|[?#])",
                          parsed.path, re.I)):
         return "Direct file"
     if any(k in url.lower() for k in SUSPICIOUS_LINK_KEYS):
@@ -94,20 +96,27 @@ def link_score(url: str, label: str = "") -> str:
 
 
 def public_link_for_log(url: str) -> str:
-    """Do not echo signed CDN tokens in the publicly visible terminal log."""
+    """Do not echo signed CDN tokens in terminal logs."""
     try:
         parsed = urlsplit(url)
-        return parsed._replace(query="[signed parameters hidden]" if parsed.query else "",
-                               fragment="").geturl()
+        return parsed._replace(
+            query="[signed parameters hidden]" if parsed.query else "",
+            fragment=""
+        ).geturl()
     except ValueError:
         return "[unavailable URL]"
 
 
-def collect_candidate(url: str, text: str, base: str, out: dict[str, dict]) -> None:
-    if not isinstance(url, str) or not url or url.startswith(
-            ("#", "javascript:", "data:", "mailto:", "tel:")):
+def collect_candidate(url: str, text: str, base: str,
+                      out: dict[str, dict]) -> None:
+    if not isinstance(url, str) or not url:
         return
-    full = urljoin(base, html.unescape(url.strip()))
+    # Decode HTML entities once; e.g. token=x&amp;exp=y becomes token=x&exp=y.
+    raw = html.unescape(url.strip()).replace("\\/", "/")
+    if raw.lower().startswith(("#", "javascript:", "data:", "mailto:",
+                                "tel:", "blob:")):
+        return
+    full = urljoin(base, raw)
     try:
         parsed = urlsplit(full)
     except ValueError:
@@ -124,78 +133,93 @@ def collect_candidate(url: str, text: str, base: str, out: dict[str, dict]) -> N
         return
     label = (text or "").strip()[:100] or parsed.hostname
     kind = link_score(full, label)
-    if full in out:
-        # Upgrade an already-discovered generic link if a labelled M1 anchor
-        # becomes available after the destination page finishes rendering.
-        if kind == "M1 DIRECT":
+    old = out.get(full)
+    priority = {"M1 DIRECT": 0, "Server link": 1, "Direct file": 2,
+                "Likely download": 3, "Other link": 4}
+    if old:
+        if priority.get(kind, 9) < priority.get(old["kind"], 9):
             out[full] = {"url": full, "label": label, "kind": kind}
         return
-    if len(out) < 150:
+    if len(out) < 250:
         out[full] = {"url": full, "label": label, "kind": kind}
 
 
-async def extract_links(page) -> list[dict]:
-    """Extract links without downloading files or synthesizing signed tokens.
+def visible_download_link(label: str, href: str) -> bool:
+    """Identify a download URL embedded in JS/HTML without fetching files."""
+    if re.search(r"\[\s*m\d+\s*\]|download|direct|server", label or "", re.I):
+        return True
+    try:
+        parsed = urlsplit(href)
+    except ValueError:
+        return False
+    return (
+        parsed.hostname == "cdn.juicybits.site"
+        or bool(re.search(r"\.(?:zip|mp4|mkv|rar|7z|pdf|avi|webm)$",
+                          parsed.path, re.I))
+        or "/files/" in parsed.path.lower()
+    )
 
-    In particular, recognize the M1 DIRECT anchor, including its entire
-    expiring query string, if MessyCloud puts the URL in the DOM.
+
+async def extract_links(page) -> list[dict]:
+    """Read all navigable URLs offered by the final MessyCloud page.
+
+    Extract links from the page and accessible iframe DOMs, including
+    visible download server buttons, other anchors, data-* URL attributes,
+    and file URLs embedded in scripts/onclick. Don't click or download files.
     """
     found: dict[str, dict] = {}
     for frame in page.frames:
         try:
-            items = await frame.evaluate("""() => Array.from(
-                document.querySelectorAll(
-                    'a[href], [data-download-url], [data-url], [data-href], [data-link]'
-                )).slice(0, 700).map(el => {
-                    const parent = el.closest('a, button, [role="button"]') || el;
-                    return {
-                        url: el.getAttribute('href') ||
-                             el.getAttribute('data-download-url') ||
-                             el.getAttribute('data-url') ||
-                             el.getAttribute('data-href') ||
-                             el.getAttribute('data-link'),
-                        label: (parent.innerText || parent.textContent ||
-                                parent.getAttribute('aria-label') || '')
-                                .trim().slice(0, 100)
-                    };
-                })""")
+            # A user-provided example uses:
+            # <a class="download-btn" href="https://cdn.juicybits.site/files/...
+            # ?token=...&amp;exp=...">[M1] DIRECT</a>.
+            items = await frame.evaluate("""() => {
+                const attrs = ['href', 'data-download-url', 'data-url',
+                    'data-href', 'data-link', 'data-download', 'data-target',
+                    'data-file', 'data-src'];
+                const elements = Array.from(document.querySelectorAll(
+                    'a[href], button, [role="button"], [onclick], ' +
+                    '[data-download-url], [data-url], [data-href], [data-link],' +
+                    '[data-download], [data-target], [data-file], [data-src]'
+                )).slice(0, 1200);
+                const out = [];
+                for (const el of elements) {
+                    const parent = el.closest('a,button,[role="button"]') || el;
+                    const label = (parent.innerText || parent.textContent ||
+                        parent.getAttribute('aria-label') || '')
+                        .trim().replace(/\\s+/g, ' ').slice(0, 100);
+                    for (const key of attrs) {
+                        const value = el.getAttribute(key);
+                        if (value) out.push({url: value, label});
+                    }
+                    const clickCode = el.getAttribute('onclick') || '';
+                    const matches = clickCode.match(/https?:\\/\\/[^\\s"'<>\\\\]+/g) || [];
+                    for (const url of matches.slice(0, 12)) {
+                        out.push({url, label: label || 'Onclick URL'});
+                    }
+                }
+                return out.slice(0, 1800);
+            }""")
             for item in items:
                 collect_candidate(item.get("url", ""), item.get("label", ""),
                                   frame.url, found)
 
-            # A nested icon/span sometimes carries the M1 label while the
-            # actual href belongs to the surrounding anchor.
-            m1_candidates = await frame.evaluate("""() =>
-                Array.from(document.querySelectorAll(
-                    'a, button, [role="button"]'
-                )).filter(el =>
-                    /\\[?\\s*m1\\s*\\]?\\s*[-:–]?\\s*direct\\b/i.test(
-                        (el.innerText || el.textContent || '').trim()
-                    )
-                ).slice(0, 30).map(el => ({
-                    url: el.getAttribute('href') ||
-                         el.getAttribute('data-download-url') ||
-                         el.getAttribute('data-url') ||
-                         el.getAttribute('data-href') ||
-                         el.getAttribute('data-link'),
-                    label: (el.innerText || el.textContent || 'M1 DIRECT')
-                        .trim().slice(0, 100)
-                }))""")
-            for item in m1_candidates:
-                collect_candidate(item.get("url", ""), item.get("label", "M1 DIRECT"),
-                                  frame.url, found)
-
+            # Some download links are embedded in inline JS or in a
+            # pre-rendered HTML attribute. Only capture download-looking
+            # URLs from raw markup to avoid collecting stylesheet/tracker URLs.
             markup = await frame.content()
             for match in re.findall(r'https?://[^\s"\'<>\\]+', markup):
-                candidate = html.unescape(match).rstrip(');,}')
-                if (any(k in candidate.lower() for k in SUSPICIOUS_LINK_KEYS)
-                        or "cdn.juicybits.site/files/" in candidate.lower()):
-                    collect_candidate(candidate, "Embedded file URL", frame.url, found)
+                url = html.unescape(match).rstrip(');,}')
+                if visible_download_link("", url):
+                    collect_candidate(url, "Embedded file URL", frame.url,
+                                      found)
         except (PlaywrightError, ValueError):
             continue
-    priority = {"M1 DIRECT": 0, "Direct file": 1, "Likely download": 2}
-    return sorted(found.values(), key=lambda e:
-                  (priority.get(e["kind"], 3), e["url"]))
+    priority = {"M1 DIRECT": 0, "Server link": 1, "Direct file": 2,
+                "Likely download": 3, "Other link": 4}
+    return sorted(found.values(), key=lambda link:
+                  (priority.get(link["kind"], 9), link["label"].lower(),
+                   link["url"]))
 
 
 async def can_request_public(hostname: str, cache: dict[str, bool]) -> bool:
@@ -933,14 +957,16 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
                                     tab=context.pages.index(chosen) + 1,
                                     elapsed=round(time.monotonic() - started, 1))
                 for link in await extract_links(chosen):
-                    if link["url"] not in found:
-                        found[link["url"]] = link
-                        yield event("link", **link)
-                        if link["kind"] == "M1 DIRECT":
-                            yield event("log", level="success",
-                                        message="Found M1 DIRECT CDN URL (signed parameters preserved for Copy)")
+                    existing = found.get(link["url"])
+                    if existing == link:
+                        continue
+                    found[link["url"]] = link
+                    yield event("link", **link)
+                    if link["kind"] == "M1 DIRECT":
                         yield event("log", level="success",
-                                    message=f"Found {link['kind']}: {public_link_for_log(link['url'])[:180]}")
+                                    message="Found M1 DIRECT CDN URL (signed parameters preserved for Copy)")
+                    yield event("log", level="success",
+                                message=f"Found {link['kind']}: {public_link_for_log(link['url'])[:180]}")
                 await asyncio.sleep(1)
             yield event("stage", step=4, status="done", detail=f"{len(found)} link(s) collected")
             yield event("done", destination=current_url, links=list(found.values()), visited=visited, elapsed=round(time.monotonic() - started, 1))
