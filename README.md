@@ -82,3 +82,11 @@ Limitations: no downloader, no execution of arbitrary inline JavaScript, and no 
 The frontend **no longer holds one network stream open for the entire batch**. It calls `POST /api/discover` once and opens `POST /api/inspect` **separately for each Cyberloom link**. When a network error interrupts one link, the website retries **only that link once**, waiting a few seconds before retrying. Previously completed MessyCloud destinations and M1 links remain visible in the results area. If a link still fails, **Retry failed links** appears, so you can manually retry only the unsuccessful entries without rerunning earlier successes. Results are held in the active browser page, not persisted in the VPS database or across a page refresh.
 
 This approach reduces the chance of mobile network/proxy timeouts during several inspections. A dropped connection to a single scan can still fail, and expiring signed CDN URLs may stop working independently of the scanner.
+
+## Source page title and poster extraction
+
+When you enter a public source webpage containing Cyberloom links, the **Source post details** card now extracts the visible forum post title from `h1.ipsType_pageTitle .ipsType_break.ipsContained > span` and the main poster URL from `img.ipsImage_thumbnailed[src]`. For example, this supports IPS Community Suite forum topics with the long movie name and a Twitter-hosted thumbnail image. If the exact markup is missing, the extractor can use `og:title` and `og:image` metadata where present.
+
+The UI shows the post/movie title and the poster URL, each with its own **Copy** button, as well as a lazy-loading image preview. HTML-escaped image query strings such as `&amp;name=large` are decoded so the copied URL retains normal `&name=large`. Metadata is returned from `POST /api/discover` and stays available alongside the batch's Cyberloom and MessyCloud results. The scanner reads the source page HTML without downloading the poster to the VPS.
+
+This metadata appears when you enter a source webpage, not when you enter a Cyberloom short URL directly; shorteners don't necessarily contain the original forum title or poster. Pages that render the title and image only after running JavaScript may not expose them to the HTML-only source discovery step.
