@@ -380,3 +380,84 @@ def test_batch_scans_have_separate_connections_and_selective_retry():
     assert 'id="retryFailed"' in frontend
     assert "await runSources(selected)" in frontend
     assert 'id="password"' not in frontend
+
+
+
+def test_source_page_title_and_thumbnail_from_forum_html():
+    """Extract the exact nested forum title span and img thumbnail href."""
+    import ast
+    import html
+    from contextlib import suppress
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin, urlsplit
+
+    root = Path(__file__).resolve().parents[1]
+    backend = (root / "app.py").read_text()
+    module = ast.parse(backend)
+    chosen = [
+        node for node in module.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+        and node.name in {"SourcePageMetadataParser", "extract_source_metadata"}
+    ]
+    scope = {
+        "HTMLParser": HTMLParser, "html": html, "urljoin": urljoin,
+        "urlsplit": urlsplit, "suppress": suppress,
+    }
+    exec(compile(ast.Module(body=chosen, type_ignores=[]), "meta_test", "exec"), scope)
+
+    example_html = """
+    <div class="ipsFlex ipsFlex-ai:center ipsFlex-fw:wrap ipsGap:4">
+      <h1 class="ipsType_pageTitle ipsContained_container">
+        <span><span class="ipsBadge" title="Pinned">PINNED</span></span>
+        <span class="ipsType_break ipsContained">
+          <span>Im Handsome (Since 2009) (2026) Telugu TRUE WEB-DL -
+          [1080p &amp; 720p - AVC] - ESub</span>
+        </span>
+      </h1>
+    </div>
+    <img alt="Sample poster" data-ratio="124.17" width="1080"
+      src="https://pbs.twimg.com/media/HT-eVCgaMAANHAi?format=jpg&amp;name=large"
+      class="ipsImage_thumbnailed">
+    <a href="https://www.cyberloom.best/l/one">Download</a>
+    """
+    result = scope["extract_source_metadata"](
+        example_html, "https://example.org/topic/123")
+    assert result["title"] == (
+        "Im Handsome (Since 2009) (2026) Telugu TRUE WEB-DL - "
+        "[1080p & 720p - AVC] - ESub"
+    )
+    assert result["poster_url"] == (
+        "https://pbs.twimg.com/media/HT-eVCgaMAANHAi?format=jpg&name=large"
+    )
+    assert result["poster_alt"] == "Sample poster"
+    assert "PINNED" not in result["title"]
+
+    # Old-style embeds are still supported via OpenGraph fallback.
+    fallback = scope["extract_source_metadata"](
+        '<meta property="og:title" content="Another &amp; Title">'
+        '<meta property="og:image" content="/poster.jpg">',
+        "https://example.org/topic/next")
+    assert fallback["title"] == "Another & Title"
+    assert fallback["poster_url"] == "https://example.org/poster.jpg"
+
+    # Source pages cannot inject script/data schemes into the preview.
+    unsafe = scope["extract_source_metadata"](
+        '<img class="ipsImage_thumbnailed" src="javascript:alert(1)">',
+        "https://example.org/topic/next")
+    assert unsafe["poster_url"] == ""
+
+
+def test_source_metadata_fields_are_wired_to_discovery_ui():
+    root = Path(__file__).resolve().parents[1]
+    backend = (root / "app.py").read_text()
+    frontend = (root / "static/index.html").read_text()
+    assert 'extract_source_metadata(markup, current)' in backend
+    assert '"metadata": metadata' in backend
+    assert 'yield event("source_metadata", **metadata)' in backend
+    assert 'id="sourcePostTitle"' in frontend
+    assert 'id="sourcePosterUrl"' in frontend
+    assert 'id="copySourceTitle"' in frontend
+    assert 'id="copySourcePoster"' in frontend
+    assert 'showSourceMetadata(discovery.metadata||{})' in frontend
+    assert "sourceMetadata.title" in frontend
+    assert "sourceMetadata.poster_url" in frontend
