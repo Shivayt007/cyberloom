@@ -1,17 +1,17 @@
 # Cyberloom Link Inspector
 
-Simple mobile-friendly website: paste a Cyberloom short URL, observe the countdown/redirect stages, see live terminal messages, and collect candidate links from the verified MessyCloud destination. It does **not** download files or bypass CAPTCHA / access controls. It may not work if the shortener changes its flow or blocks automated browsers.
+Mobile-friendly website: paste any public HTML page containing Cyberloom short links, or paste one Cyberloom or MessyCloud URL directly. Discover up to eight Cyberloom links and inspect each separately, with live terminal messages, browser preview, and final MessyCloud download links. It does **not** download files or bypass CAPTCHA / access controls. It may not work if the shortener changes its flow or blocks automated browsers.
 
 ## EasyPanel deployment
 
 1. Create a new **Project** and **App Service** in EasyPanel.
 2. Source: **GitHub**, repository `Shivayt007/cyberloom`, branch `main`.
 3. Build: **Dockerfile** (path: `Dockerfile`, build context `/`).
-4. Environment variables: `APP_PASSWORD=<your unique long random password>`; optionally copy `ALLOWED_START_HOSTS` and `TARGET_HOSTS` from `.env.example`.
+4. No `APP_PASSWORD` is required. Optionally copy `ALLOWED_START_HOSTS` and `TARGET_HOSTS` from `.env.example`.
 5. Expose **port 8000** as HTTP and assign an EasyPanel domain with HTTPS.
-6. Deploy. Visit the domain, enter password and Cyberloom URL, click **Inspect Link**. Health endpoint: `/health`.
+6. Deploy. Paste a public source webpage URL or a direct Cyberloom link and click **Inspect Website**. Health endpoint: `/health`.
 
-Use a strong password; do not disable authentication or publicly expose the browser to arbitrary URLs. The server limits input hosts and blocks private IPs as defense in depth, but networking restrictions are recommended. The Playwright browser runs as an unprivileged user; production browser hardening and container isolation remain your responsibility. The built-in image is large (~gigabytes) because it contains browsers.
+The website has no password by request. Keep the VPS behind HTTPS, apply firewall restrictions, and note that public visitors can consume Playwright CPU and RAM. Rate limits (12 starts per visitor per hour, 35 globally) and a single-browser semaphore provide basic protection; no arbitrary webpage receives a Playwright browser. Source-page discovery fetches only up to 2 MB of public HTML with redirects, timeout and public-only DNS validation. The Playwright browser runs as an unprivileged user; production browser hardening and container isolation remain your responsibility. The built-in image is large (~gigabytes) because it contains browsers.
 
 **No EasyPanel auto-deployment is configured.** If your EasyPanel service enables auto-deploy on push, future updates can trigger that; otherwise click Deploy manually.
 
@@ -20,13 +20,12 @@ Use a strong password; do not disable authentication or publicly expose the brow
 ```sh
 pip install -r requirements.txt
 python -m playwright install chromium
-export APP_PASSWORD='set-a-long-random-password' # Windows PowerShell: $env:APP_PASSWORD='...'
 uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
 ## API
 
-`POST /api/inspect` with header `X-API-Key: <APP_PASSWORD>` and JSON `{"url":"https://www.cyberloom.best/l/abc123","timeout":120,"settle":12}` streams newline-separated JSON events. Only one scan runs at a time per instance. No links are retained on server after completion.
+`POST /api/discover` with JSON `{"url":"https://example.org/page"}` returns `{"links":[...],"total":...}` with up to eight Cyberloom `/l/` URLs. `POST /api/inspect` with JSON `{"url":"https://www.cyberloom.best/l/abc123","timeout":120,"settle":12}` streams newline-separated JSON events for a single URL. Only one Playwright scan runs at a time per instance. No links are retained on server after completion.
 
 ## Notes
 
@@ -46,7 +45,7 @@ A phone recording showed Inkvoyage's "Continue to Destination" page, transient I
 
 ## When Stackmint stays on one tab
 
-If the browser remains at `www.stackmint.ink/go?t=...`, the app now records browser-state diagnostics **after 18 seconds without navigation**, including page title, headings, visible buttons, iframe count, failed-resource hostnames, and an in-memory JPEG preview displayed below the terminal. The preview is streamed only to the password-protected client and is not saved as a file on the server. Failed-resource counts and a blank preview help distinguish a loading problem from an access/verification gate.
+If the browser remains at `www.stackmint.ink/go?t=...`, the app now records browser-state diagnostics **after 18 seconds without navigation**, including page title, headings, visible buttons, iframe count, failed-resource hostnames, and an in-memory JPEG preview displayed below the terminal. The preview is streamed only to the active browser client and is not saved as a file on the server. Failed-resource counts and a blank preview help distinguish a loading problem from an access/verification gate.
 
 The web app does not automate CAPTCHA, email sign-in, or other human-verification steps. Use the link shown in the UI to verify in your own phone browser, continue to the destination, and paste the final MessyCloud URL in the inspector. A verification cookie in your phone is not transferred to the VPS.
 
@@ -54,7 +53,7 @@ The web app does not automate CAPTCHA, email sign-in, or other human-verificatio
 
 After clicking **Inspect Link**, the website displays **Live browser screen** below its terminal. The browser image automatically refreshes about every 2–3 seconds as the scanner loads pages, clicks Continue, changes tabs and reaches MessyCloud. A browser tab number and hostname appear above the picture. This is a low-frame-rate **read-only screenshot stream**, not an interactive VNC/WebRTC session or continuous video. The **Pause view / Resume view** control freezes or resumes the *local display*; it does not stop the scan or cease server-side capture.
 
-Frames use the existing authenticated newline-delimited JSON response (`POST /api/inspect` with `live: true`), carry compressed JPEG data in memory, and are not written to disk. Screenshots may show untrusted third-party website content, including sensitive data; keep `APP_PASSWORD` private and serve the site only over HTTPS. Larger image traffic and lower frame rates are possible on a slow VPS or mobile connection.
+Frames use the newline-delimited JSON response (`POST /api/inspect` with `live: true`), carry compressed JPEG data in memory, and are not written to disk. Screenshots may show untrusted third-party website content, including sensitive data; serve the site over HTTPS and avoid exposing sensitive URLs in public. Larger image traffic and lower frame rates are possible on a slow VPS or mobile connection.
 
 To see it, redeploy the latest `main` branch in EasyPanel and start a new scan. No extra ports are necessary; HTTP container port 8000 is unchanged. If the site requires a human verification step, the screen will show it but cannot automatically solve it.
 
@@ -77,3 +76,9 @@ The final-page inspector now gathers all discoverable links from ordinary anchor
 Duplicate URLs are combined, and labelled server links take precedence when the same URL appears in multiple HTML locations. Signed `token`/`exp` parameters are preserved in links copied from the UI but hidden in diagnostic terminal messages.
 
 Limitations: no downloader, no execution of arbitrary inline JavaScript, and no CAPTCHA bypass. Links generated only by a future click or authorized API response might not exist in the page yet, so those cannot be guaranteed by static DOM extraction. Results are capped at 250 URLs per scan.
+
+## Connection reliability and batch retry
+
+The frontend **no longer holds one network stream open for the entire batch**. It calls `POST /api/discover` once and opens `POST /api/inspect` **separately for each Cyberloom link**. When a network error interrupts one link, the website retries **only that link once**, waiting a few seconds before retrying. Previously completed MessyCloud destinations and M1 links remain visible in the results area. If a link still fails, **Retry failed links** appears, so you can manually retry only the unsuccessful entries without rerunning earlier successes. Results are held in the active browser page, not persisted in the VPS database or across a page refresh.
+
+This approach reduces the chance of mobile network/proxy timeouts during several inspections. A dropped connection to a single scan can still fail, and expiring signed CDN URLs may stop working independently of the scanner.
