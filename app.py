@@ -354,6 +354,13 @@ async def inspect(url: str, timeout: int, settle: int):
                 if challenged is not None:
                     if verification_page is challenged and verification_since is not None:
                         if time.monotonic() - verification_since >= 3:
+                            diagnosis = await page_diagnostics(challenged)
+                            yield event("log", level="warn",
+                                        message="Detected verification gate: " +
+                                                json.dumps(diagnosis, ensure_ascii=False)[:950])
+                            preview = await preview_image(challenged)
+                            if preview:
+                                yield event("screenshot", image=preview, url=challenged.url)
                             yield event("stage", step=2, status="error",
                                         detail="Manual human verification required")
                             yield event("log", level="warn",
