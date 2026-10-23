@@ -57,3 +57,9 @@ After clicking **Inspect Link**, the website displays **Live browser screen** be
 Frames use the existing authenticated newline-delimited JSON response (`POST /api/inspect` with `live: true`), carry compressed JPEG data in memory, and are not written to disk. Screenshots may show untrusted third-party website content, including sensitive data; keep `APP_PASSWORD` private and serve the site only over HTTPS. Larger image traffic and lower frame rates are possible on a slow VPS or mobile connection.
 
 To see it, redeploy the latest `main` branch in EasyPanel and start a new scan. No extra ports are necessary; HTTP container port 8000 is unchanged. If the site requires a human verification step, the screen will show it but cannot automatically solve it.
+
+## Direct Continue URL discovered in page HTML
+
+Some Stackmint/Inkvoyage Ready screens show an anchor like `<a id="cta" href="https://www.cyberloom.best/out?t=...">Continue to Destination</a>`. The page may also put a full-screen `div` above the control that intercepts normal pointer clicks. The inspector now reads **the actual current `href`** from that displayed link after the page shows **Ready!**, validates that it is an HTTPS Cyberloom `/out` URL with a nonempty `t` parameter, and follows it **in the same browser context**. The token is not hard-coded: it can change for every inspection. It still follows normal server-side redirects and does not forge a human-verification result.
+
+If a visible human-verification challenge is present, the existing manual verification handling takes priority. If the `#cta` link is missing or invalid, the ordinary Playwright clicking/diagnostic logic remains available. The next browser URL is logged in the Live Terminal.
