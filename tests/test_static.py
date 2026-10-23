@@ -52,3 +52,23 @@ def test_live_browser_streaming_wired():
     assert "event.type==='frame'" in frontend
     assert "live:true" in frontend
     assert 'previewSection").classList.add' not in frontend
+
+
+def test_continue_click_actionability_safety():
+    """Regression guard: don't reintroduce forced clicks or bad mouse args."""
+    import ast
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
+    tree = ast.parse(source)
+    routine = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef)
+                   and n.name == "click_continue")
+    handler = ast.get_source_segment(source, routine)
+    assert "frame.get_by_role" in handler
+    assert "document.elementFromPoint" in handler
+    assert "owner.contains(hit)" in handler
+    assert "page.mouse.click" in handler
+    assert "force=True" not in handler
+    for node in ast.walk(routine):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == "click" and isinstance(node.func.value, ast.Attribute):
+                if node.func.value.attr == "mouse":
+                    assert not any(arg.arg == "timeout" for arg in node.keywords)
