@@ -548,6 +548,7 @@ async def is_final_messycloud_page(page) -> bool:
         "choose a server to download" in body
         or "supports resume" in body
         or ("back to home" in body and "direct" in body)
+        or is_m1_direct_label(body)
     )
 
 
