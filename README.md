@@ -63,3 +63,9 @@ To see it, redeploy the latest `main` branch in EasyPanel and start a new scan. 
 Some Stackmint/Inkvoyage Ready screens show an anchor like `<a id="cta" href="https://www.cyberloom.best/out?t=...">Continue to Destination</a>`. The page may also put a full-screen `div` above the control that intercepts normal pointer clicks. The inspector now reads **the actual current `href`** from that displayed link after the page shows **Ready!**, validates that it is an HTTPS Cyberloom `/out` URL with a nonempty `t` parameter, and follows it **in the same browser context**. The token is not hard-coded: it can change for every inspection. It still follows normal server-side redirects and does not forge a human-verification result.
 
 If a visible human-verification challenge is present, the existing manual verification handling takes priority. If the `#cta` link is missing or invalid, the ordinary Playwright clicking/diagnostic logic remains available. The next browser URL is logged in the Live Terminal.
+
+## M1 DIRECT file-server extraction
+
+After the inspector reaches the final MessyCloud file page, it now looks for **[M1] DIRECT** links in regular anchor `href` attributes, related data URL attributes and accessible nested elements. Recognized links appear first in the results and in a separate **M1 Direct Download Link** section with a Copy button. It preserves the complete signed CDN URL (including `token` and `exp` query parameters) when copying. Terminal logs redact query strings to avoid unnecessarily exposing temporary access tokens. It does not download file contents or generate new tokens.
+
+Some pages create the actual file URL only after executing button-specific JavaScript. That case is not guaranteed: this implementation extracts URLs already made available in the accessible page DOM or markup and would need the page's exact M1 element implementation for further support. Signed URLs may expire and should be used promptly.
