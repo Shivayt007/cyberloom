@@ -71,8 +71,8 @@ def verify_token(token: str | None) -> None:
         raise HTTPException(status_code=401, detail="Incorrect access password")
 
 
-def event(kind: str, **data) -> bytes:
-    return (json.dumps({"type": kind, "time": time.strftime("%H:%M:%S"), **data}, ensure_ascii=False) + "\n").encode()
+def event(event_type: str, **data) -> bytes:
+    return (json.dumps({"type": event_type, "time": time.strftime("%H:%M:%S"), **data}, ensure_ascii=False) + "\n").encode()
 
 
 def is_m1_direct_label(label: str) -> bool:
