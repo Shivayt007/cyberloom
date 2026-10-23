@@ -73,7 +73,7 @@ def test_continue_click_actionability_safety():
                 if node.func.value.attr == "mouse":
                     assert not any(arg.arg == "timeout" for arg in node.keywords)
 
- 
+
 def test_blocked_overlay_logging_and_throttle():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
@@ -84,3 +84,22 @@ def test_blocked_overlay_logging_and_throttle():
     assert 'json.dumps(blocker, ensure_ascii=False)' in source
     assert 'last_click_by_tab[tab] = time.monotonic()' in source
     assert 'await control.click(timeout=1600)' in source
+
+
+
+def test_verification_popup_dismissal_respects_close_control():
+    import ast
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text()
+    tree = ast.parse(source)
+    helper = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef)
+                  and n.name == "close_visible_verification_popup")
+    code = ast.get_source_segment(source, helper)
+    assert "aria-label*=" in code
+    assert "modal-close" in code
+    assert "close.click(" in code
+    assert "needs_human_verification(page)" in code
+    assert "force=True" not in code
+    assert ".remove()" not in code
+    assert "pointerEvents =" not in code
+    assert "dismissed, details = await close_visible_verification_popup" in source
