@@ -49,3 +49,11 @@ A phone recording showed Inkvoyage's "Continue to Destination" page, transient I
 If the browser remains at `www.stackmint.ink/go?t=...`, the app now records browser-state diagnostics **after 18 seconds without navigation**, including page title, headings, visible buttons, iframe count, failed-resource hostnames, and an in-memory JPEG preview displayed below the terminal. The preview is streamed only to the password-protected client and is not saved as a file on the server. Failed-resource counts and a blank preview help distinguish a loading problem from an access/verification gate.
 
 The web app does not automate CAPTCHA, email sign-in, or other human-verification steps. Use the link shown in the UI to verify in your own phone browser, continue to the destination, and paste the final MessyCloud URL in the inspector. A verification cookie in your phone is not transferred to the VPS.
+
+## Watch the VPS browser live
+
+After clicking **Inspect Link**, the website displays **Live browser screen** below its terminal. The browser image automatically refreshes about every 2–3 seconds as the scanner loads pages, clicks Continue, changes tabs and reaches MessyCloud. A browser tab number and hostname appear above the picture. This is a low-frame-rate **read-only screenshot stream**, not an interactive VNC/WebRTC session or continuous video. The **Pause view / Resume view** control freezes or resumes the *local display*; it does not stop the scan or cease server-side capture.
+
+Frames use the existing authenticated newline-delimited JSON response (`POST /api/inspect` with `live: true`), carry compressed JPEG data in memory, and are not written to disk. Screenshots may show untrusted third-party website content, including sensitive data; keep `APP_PASSWORD` private and serve the site only over HTTPS. Larger image traffic and lower frame rates are possible on a slow VPS or mobile connection.
+
+To see it, redeploy the latest `main` branch in EasyPanel and start a new scan. No extra ports are necessary; HTTP container port 8000 is unchanged. If the site requires a human verification step, the screen will show it but cannot automatically solve it.
