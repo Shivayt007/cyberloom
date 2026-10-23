@@ -500,7 +500,7 @@ def test_poster_preview_failure_is_visible_and_original_url_is_preserved():
     assert 'loading="eager"' in frontend
     assert "preview.onerror=()=>" in frontend
     assert "posterPreviewUrls(original)" in frontend
-    assert "url.searchParams.set('name',size)" in frontend
+    assert "variation.searchParams.set('name',size)" in frontend
     assert "'sourcePosterUrl').href=poster_url" in frontend
     assert "Paste the original forum webpage" in frontend
     assert "The image host did not load this preview" in frontend
