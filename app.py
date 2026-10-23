@@ -41,7 +41,7 @@ START_TIMES = deque()
 PER_CLIENT_STARTS: dict[str, deque] = {}
 MAX_BATCH_LINKS = 8
 MAX_GLOBAL_STARTS_PER_HOUR = 35
-MAX_CLIENT_STARTS_PER_HOUR = 6
+MAX_CLIENT_STARTS_PER_HOUR = 12
 MAX_SOURCE_BYTES = 2_000_000
 
 
@@ -1163,6 +1163,26 @@ async def home():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/api/discover")
+async def discover_api(body: InspectRequest, request: Request):
+    """Short request: discover Cyberloom URLs separately from long scans."""
+    safe_url = basic_public_url(body.url)
+    enforce_public_rate_limit(request.client.host if request.client else "unknown")
+    try:
+        if is_short_link(safe_url) or target_url(safe_url):
+            return {"links": [validate_start(safe_url)], "source": safe_url,
+                    "total": 1, "max_batch": MAX_BATCH_LINKS}
+        links, final_page = await discover_from_website(safe_url)
+        return {"links": links, "source": final_page,
+                "total": len(links), "max_batch": MAX_BATCH_LINKS}
+    except (aiohttp.ClientError, OSError, ValueError,
+            asyncio.TimeoutError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Source discovery failed: {str(exc)[:210]}"
+        ) from exc
 
 
 @app.post("/api/inspect")
