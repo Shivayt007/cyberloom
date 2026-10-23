@@ -461,3 +461,46 @@ def test_source_metadata_fields_are_wired_to_discovery_ui():
     assert 'showSourceMetadata(discovery.metadata||{})' in frontend
     assert "sourceMetadata.title" in frontend
     assert "sourceMetadata.poster_url" in frontend
+
+
+
+def test_lazy_loaded_thumbnail_and_poster_selection():
+    import ast
+    import html
+    from contextlib import suppress
+    from html.parser import HTMLParser
+    from urllib.parse import urljoin, urlsplit
+
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text()
+    module = ast.parse(source)
+    chosen = [n for n in module.body if isinstance(n, (ast.ClassDef, ast.FunctionDef))
+              and n.name in {"SourcePageMetadataParser", "extract_source_metadata"}]
+    scope = {"HTMLParser": HTMLParser, "html": html,
+             "urljoin": urljoin, "urlsplit": urlsplit, "suppress": suppress}
+    exec(compile(ast.Module(body=chosen, type_ignores=[]),
+                 "lazy_poster_test", "exec"), scope)
+    markup = """
+      <img class="ipsImage_thumbnailed" width="32" height="32"
+           src="https://cdn.example.net/icon.jpg" />
+      <img class="ipsImage_thumbnailed" width="1080" height="1350"
+           src="data:image/gif;base64,abc" data-src="https://pbs.twimg.com/media/ABC?format=jpg&amp;name=large" />
+    """
+    meta = scope["extract_source_metadata"](markup, "https://forum.example.net/topic/123")
+    assert meta["poster_url"] == "https://pbs.twimg.com/media/ABC?format=jpg&name=large"
+    assert scope["extract_source_metadata"](
+        '<img class="ipsImage_thumbnailed" data-lazy-src="/media/poster.jpg">',
+        "https://forum.example.net/topic/123"
+    )["poster_url"] == "https://forum.example.net/media/poster.jpg"
+
+
+def test_poster_preview_failure_is_visible_and_original_url_is_preserved():
+    frontend = (Path(__file__).resolve().parents[1] / "static/index.html").read_text()
+    assert 'id="sourcePosterStatus"' in frontend
+    assert 'loading="eager"' in frontend
+    assert "preview.onerror=()=>" in frontend
+    assert "posterPreviewUrls(original)" in frontend
+    assert "url.searchParams.set('name',size)" in frontend
+    assert "'sourcePosterUrl').href=poster_url" in frontend
+    assert "Paste the original forum webpage" in frontend
+    assert "The image host did not load this preview" in frontend
