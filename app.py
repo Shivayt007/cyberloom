@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hmac
 import html
 import ipaddress
 import json
@@ -12,16 +11,18 @@ import re
 import socket
 import time
 from contextlib import suppress
+from collections import deque
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+import httpx
 from playwright.async_api import async_playwright, Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
 ROOT = Path(__file__).parent
-TOKEN = os.getenv("APP_PASSWORD", "")
 ALLOWED_START = {v.strip().lower() for v in os.getenv("ALLOWED_START_HOSTS", "cyberloom.best,www.cyberloom.best").split(",") if v.strip()}
 TARGET_HOSTS = {v.strip().lower() for v in os.getenv("TARGET_HOSTS", "messycloud.ink,www.messycloud.ink").split(",") if v.strip()}
 SUSPICIOUS_LINK_KEYS = ("gofile.io", "pixeldrain", "vikingfile", "r2.dev", "workers.dev", "download", "mediafire.com", "mega.nz", "drive.google.com", "1fichier.com")
@@ -35,6 +36,12 @@ REDIRECT_HOSTS = {
 }
 app = FastAPI(title="Cyberloom Link Inspector", docs_url=None, redoc_url=None, openapi_url=None)
 RUN_LOCK = asyncio.Lock()
+START_TIMES = deque()
+PER_CLIENT_STARTS: dict[str, deque] = {}
+MAX_BATCH_LINKS = 8
+MAX_GLOBAL_STARTS_PER_HOUR = 35
+MAX_CLIENT_STARTS_PER_HOUR = 6
+MAX_SOURCE_BYTES = 2_000_000
 
 
 class InspectRequest(BaseModel):
@@ -52,23 +59,153 @@ def target_url(url: str) -> bool:
         return False
 
 
-def validate_start(url: str) -> str:
+def basic_public_url(url: str) -> str:
+    """Validate the source webpage URL before network access."""
+    value = url.strip()
     try:
-        p = urlsplit(url.strip())
-        if p.scheme not in ("http", "https") or not p.hostname or p.hostname.lower() not in (ALLOWED_START | TARGET_HOSTS):
-            raise ValueError("Enter a permitted Cyberloom short URL or a verified MessyCloud URL")
-        if p.username or p.password or (p.port and p.port not in (80, 443)):
-            raise ValueError("Credential URLs and custom ports are not allowed")
+        parsed = urlsplit(value)
+        if (parsed.scheme not in ("https", "http") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 80, 443)
+                or len(value) > 2048):
+            raise ValueError("Enter a public http(s) URL (ports 80/443 only)")
+        host = parsed.hostname.lower().strip(".")
+        if host == "localhost" or host.endswith((".local", ".internal")):
+            raise ValueError("Private/local addresses are not supported")
+        try:
+            numeric = ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            if not numeric.is_global:
+                raise ValueError("Private/nonpublic IP address rejected")
+        return value
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return url.strip()
 
 
-def verify_token(token: str | None) -> None:
-    if not TOKEN:
-        raise HTTPException(status_code=503, detail="APP_PASSWORD is not configured on the server")
-    if not token or not hmac.compare_digest(token, TOKEN):
-        raise HTTPException(status_code=401, detail="Incorrect access password")
+def is_short_link(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        return (parsed.scheme in ("http", "https")
+                and (parsed.hostname or "").lower() in ALLOWED_START
+                and parsed.path.startswith("/l/") and len(parsed.path) > 3)
+    except ValueError:
+        return False
+
+
+def validate_start(url: str) -> str:
+    """Only known destination hosts run in Playwright."""
+    value = basic_public_url(url)
+    if not (is_short_link(value) or target_url(value)):
+        raise HTTPException(status_code=400, detail="Only Cyberloom /l/ and MessyCloud URLs can be inspected directly")
+    return value
+
+
+class CyberloomFinder(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.candidates: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        for key, value in attrs:
+            if value and key in (
+                "href", "data-url", "data-href", "data-link", "data-target",
+                "data-download-url", "content"
+            ):
+                self.candidates.append(value)
+
+
+CYBERLOOM_SHORT_PATTERN = re.compile(
+    r'(?:https?:)?//(?:www\.)?cyberloom\.best/l/'
+    r'[A-Za-z0-9_%\-]+(?:\?[A-Za-z0-9_%&=+\-./]*)?',
+    re.I
+)
+
+
+def discover_cyberloom_links(markup: str) -> list[str]:
+    """Find unique Cyberloom /l/ links in static HTML, attributes and text."""
+    parser = CyberloomFinder()
+    with suppress(ValueError):
+        parser.feed(markup)
+    found: dict[str, None] = {}
+    candidates = parser.candidates + [
+        markup.replace("\\/", "/"), html.unescape(markup)
+    ]
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        cleaned = html.unescape(candidate.replace("\\/", "/"))
+        for match in CYBERLOOM_SHORT_PATTERN.finditer(cleaned):
+            raw = match.group(0).rstrip(".,;)")
+            if raw.startswith("//"):
+                raw = "https:" + raw
+            try:
+                parsed = urlsplit(raw)
+                normalized = parsed._replace(scheme="https", fragment="").geturl()
+            except ValueError:
+                continue
+            if is_short_link(normalized):
+                found.setdefault(normalized, None)
+                if len(found) >= MAX_BATCH_LINKS:
+                    return list(found)
+    return list(found)
+
+
+async def discover_from_website(url: str) -> tuple[list[str], str]:
+    """HTML-only discovery with bounded content, time, and redirect hops."""
+    current = basic_public_url(url)
+    cache: dict[str, bool] = {}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; CyberloomLinkInspector/2.0)",
+        "Accept": "text/html,text/plain;q=0.8,*/*;q=0.2",
+    }
+    async with httpx.AsyncClient(
+        follow_redirects=False, timeout=httpx.Timeout(12.0),
+        trust_env=False, headers=headers
+    ) as client:
+        for hop in range(4):
+            basic_public_url(current)
+            parsed = urlsplit(current)
+            if not await can_request_public(parsed.hostname or "", cache):
+                raise ValueError("Source host is private, unresolved, or not publicly routable")
+            async with client.stream("GET", current) as response:
+                if response.status_code in (301, 302, 303, 307, 308):
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ValueError("Source redirect has no Location header")
+                    current = urljoin(current, location)
+                    continue
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type and not any(
+                    item in content_type for item in ("text/html", "text/plain", "application/xhtml")
+                ):
+                    raise ValueError("Source is not an HTML/text webpage")
+                chunks = bytearray()
+                async for part in response.aiter_bytes():
+                    chunks.extend(part)
+                    if len(chunks) > MAX_SOURCE_BYTES:
+                        raise ValueError("Source exceeds the 2 MB discovery limit")
+                markup = chunks.decode("utf-8", errors="replace")
+                return discover_cyberloom_links(markup), current
+    raise ValueError("Source redirected more than three times")
+
+
+def enforce_public_rate_limit(client_id: str) -> None:
+    """Basic single-instance limits for the password-free public website."""
+    now = time.monotonic()
+    while START_TIMES and now - START_TIMES[0] > 3600:
+        START_TIMES.popleft()
+    if len(START_TIMES) >= MAX_GLOBAL_STARTS_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Scanner hourly capacity reached. Try again later.")
+    starts = PER_CLIENT_STARTS.setdefault(client_id, deque())
+    while starts and now - starts[0] > 3600:
+        starts.popleft()
+    if len(starts) >= MAX_CLIENT_STARTS_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Hourly scan limit reached for this visitor.")
+    starts.append(now)
+    START_TIMES.append(now)
 
 
 def event(event_type: str, **data) -> bytes:
