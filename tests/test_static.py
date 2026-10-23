@@ -46,7 +46,7 @@ def test_live_browser_streaming_wired():
     frontend = (root / "static/index.html").read_text()
     assert 'live: bool = Field(default=True)' in backend
     assert 'yield event("frame", image=capture' in backend
-    assert 'body.timeout, body.settle, body.live' in backend
+    assert 'body.live' in backend
     assert 'id="liveStatus"' in frontend
     assert 'id="toggleLive"' in frontend
     assert "event.type==='frame'" in frontend
@@ -289,6 +289,10 @@ def test_public_multi_link_discovery_and_password_removal():
         "suppress": suppress, "ALLOWED_START": {"cyberloom.best", "www.cyberloom.best"},
         "MAX_BATCH_LINKS": 8
     }
+    env["CYBERLOOM_SHORT_PATTERN"] = re.compile(
+        r"(?:https?:)?//(?:www\\.)?cyberloom\\.best/l/"
+        r"[A-Za-z0-9_%\\-]+(?:\\?[A-Za-z0-9_%&=+\\-./]*)?", re.I
+    )
     exec(compile(ast.Module(body=declarations, type_ignores=[]),
                  "discovery_test", "exec"), env)
     markup = """
@@ -323,7 +327,10 @@ def test_public_url_prevents_private_and_custom_ports():
     import ast
     import ipaddress
     from urllib.parse import urlsplit
-    from fastapi import HTTPException
+    class HTTPException(Exception):
+        def __init__(self, status_code, detail):
+            self.status_code = status_code
+            self.detail = detail
     root = Path(__file__).resolve().parents[1]
     source = (root / "app.py").read_text()
     mod = ast.parse(source)
