@@ -356,3 +356,27 @@ def test_public_url_prevents_private_and_custom_ports():
             assert exc.status_code == 400
         else:
             raise AssertionError(f"Accepted unsafe URL: {url}")
+
+
+
+def test_batch_scans_have_separate_connections_and_selective_retry():
+    root = Path(__file__).resolve().parents[1]
+    frontend = (root / "static/index.html").read_text()
+    backend = (root / "app.py").read_text()
+    assert '@app.post("/api/discover")' in backend
+    assert '@app.post("/api/inspect")' in backend
+    assert 'yield event("discovered"' in backend
+    assert 'MAX_BATCH_LINKS = 8' in backend
+    assert 'MAX_CLIENT_STARTS_PER_HOUR = 12' in backend
+    assert "async function discoverUrls(sourceUrl)" in frontend
+    assert "fetch('/api/discover'" in frontend
+    assert "async function scanSingle(source,index,total)" in frontend
+    assert "fetch('/api/inspect'" in frontend
+    assert "async function runSources(selected)" in frontend
+    assert "await scanSingle(source,index,total)" in frontend
+    assert "if(msg.type==='discovered'||msg.type==='batch_done')continue;" in frontend
+    assert "for(let attempt=1;attempt<=2;attempt++)" in frontend
+    assert "failedSources.push(source)" in frontend
+    assert 'id="retryFailed"' in frontend
+    assert "await runSources(selected)" in frontend
+    assert 'id="password"' not in frontend
