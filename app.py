@@ -153,6 +153,106 @@ def discover_cyberloom_links(markup: str) -> list[str]:
     return list(found)
 
 
+class SourcePageMetadataParser(HTMLParser):
+    """Extract the forum post title and primary thumbnail from source HTML.
+
+    Target the nested title span inside h1.ipsType_pageTitle, rather than
+    unrelated badge text. Prefer img.ipsImage_thumbnailed; keep OG metadata
+    as fallback for pages using another layout.
+    """
+    VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img",
+                 "input", "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self, base_url: str):
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.stack: list[tuple[str, set[str]]] = []
+        self.active_depth: int | None = None
+        self.title_parts: list[str] = []
+        self.title = ""
+        self.poster_url = ""
+        self.poster_alt = ""
+        self.og_title = ""
+        self.og_image = ""
+
+    def image_url(self, raw: str) -> str:
+        if not raw:
+            return ""
+        resolved = urljoin(self.base_url, html.unescape(raw.strip()))
+        try:
+            parsed = urlsplit(resolved)
+            if (parsed.scheme in ("http", "https") and parsed.hostname
+                    and parsed.username is None and parsed.password is None
+                    and parsed.port in (None, 80, 443)
+                    and len(resolved) <= 2048):
+                return resolved
+        except ValueError:
+            pass
+        return ""
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        props = dict(attrs)
+        classes = set((props.get("class") or "").split())
+        if tag == "meta":
+            property_name = (props.get("property") or props.get("name") or "").lower()
+            if property_name in ("og:title", "twitter:title") and not self.og_title:
+                self.og_title = props.get("content") or ""
+            if property_name in ("og:image", "twitter:image") and not self.og_image:
+                self.og_image = self.image_url(props.get("content") or "")
+        if tag == "img" and "ipsImage_thumbnailed" in classes and not self.poster_url:
+            self.poster_url = self.image_url(
+                props.get("src") or props.get("data-src") or ""
+            )
+            self.poster_alt = (props.get("alt") or "")[:200]
+        if (tag == "span" and self.active_depth is None
+                and self.stack
+                and self.stack[-1][0] == "span"
+                and {"ipsType_break", "ipsContained"}.issubset(self.stack[-1][1])
+                and any(item_tag == "h1" and "ipsType_pageTitle" in item_classes
+                        for item_tag, item_classes in self.stack)):
+            self.active_depth = len(self.stack) + 1
+            self.title_parts = []
+        if tag not in self.VOID_TAGS:
+            self.stack.append((tag, classes))
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID_TAGS:
+            self.handle_endtag(tag)
+
+    def handle_data(self, data: str) -> None:
+        if self.active_depth is not None:
+            self.title_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self.stack:
+            return
+        index = next((i for i in range(len(self.stack)-1, -1, -1)
+                      if self.stack[i][0] == tag), None)
+        if index is None:
+            return
+        if self.active_depth is not None and index < self.active_depth:
+            candidate = " ".join(" ".join(self.title_parts).split())
+            if candidate and not self.title:
+                self.title = html.unescape(candidate)[:700]
+            self.active_depth = None
+            self.title_parts = []
+        del self.stack[index:]
+
+    def result(self) -> dict[str, str]:
+        title = self.title or " ".join(self.og_title.split())[:700]
+        poster = self.poster_url or self.og_image
+        return {"title": title, "poster_url": poster,
+                "poster_alt": self.poster_alt}
+
+
+def extract_source_metadata(markup: str, base_url: str) -> dict[str, str]:
+    parser = SourcePageMetadataParser(base_url)
+    with suppress(ValueError):
+        parser.feed(markup)
+    return parser.result()
+
+
 class PublicOnlyResolver(AbstractResolver):
     """Resolve each source host to publicly routable addresses only.
 
@@ -189,7 +289,7 @@ class PublicOnlyResolver(AbstractResolver):
         pass
 
 
-async def discover_from_website(url: str) -> tuple[list[str], str]:
+async def discover_from_website(url: str) -> tuple[list[str], str, dict[str, str]]:
     """HTML-only discovery, 2MB max, public DNS only, <=3 redirects."""
     current = basic_public_url(url)
     headers = {
@@ -227,7 +327,8 @@ async def discover_from_website(url: str) -> tuple[list[str], str]:
                     if len(chunks) > MAX_SOURCE_BYTES:
                         raise ValueError("Source exceeds the 2 MB discovery limit")
                 markup = chunks.decode("utf-8", errors="replace")
-                return discover_cyberloom_links(markup), current
+                return (discover_cyberloom_links(markup), current,
+                        extract_source_metadata(markup, current))
     raise ValueError("Source redirected more than three times")
 
 
@@ -1173,10 +1274,12 @@ async def discover_api(body: InspectRequest, request: Request):
     try:
         if is_short_link(safe_url) or target_url(safe_url):
             return {"links": [validate_start(safe_url)], "source": safe_url,
-                    "total": 1, "max_batch": MAX_BATCH_LINKS}
-        links, final_page = await discover_from_website(safe_url)
+                    "total": 1, "max_batch": MAX_BATCH_LINKS,
+                    "metadata": {"title": "", "poster_url": "", "poster_alt": ""}}
+        links, final_page, metadata = await discover_from_website(safe_url)
         return {"links": links, "source": final_page,
-                "total": len(links), "max_batch": MAX_BATCH_LINKS}
+                "metadata": metadata, "total": len(links),
+                "max_batch": MAX_BATCH_LINKS}
     except (aiohttp.ClientError, OSError, ValueError,
             asyncio.TimeoutError) as exc:
         raise HTTPException(
@@ -1208,7 +1311,8 @@ async def inspect_api(body: InspectRequest, request: Request):
                                 detail="Discovering Cyberloom links")
                     yield event("log", level="info",
                                 message=f"Searching source webpage {public_link_for_log(source_url)[:220]}")
-                    links, effective_source = await discover_from_website(source_url)
+                    links, effective_source, metadata = await discover_from_website(source_url)
+                    yield event("source_metadata", **metadata)
                     yield event("log", level="info",
                                 message=f"Source inspected: {public_link_for_log(effective_source)[:220]}")
                     yield event("stage", step=1, status="done",
