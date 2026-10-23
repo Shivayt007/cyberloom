@@ -172,6 +172,7 @@ class SourcePageMetadataParser(HTMLParser):
         self.title = ""
         self.poster_url = ""
         self.poster_alt = ""
+        self.poster_area = -1
         self.og_title = ""
         self.og_image = ""
 
@@ -190,6 +191,24 @@ class SourcePageMetadataParser(HTMLParser):
             pass
         return ""
 
+    def image_candidate(self, props: dict) -> str:
+        """Resolve a real image URL, including IPS lazy-loading attributes."""
+        keys = ("src", "data-src", "data-original", "data-lazy-src",
+                "data-full-src", "data-image", "data-url")
+        for key in keys:
+            value = props.get(key) or ""
+            url = self.image_url(value)
+            if url:
+                return url
+        for key in ("data-srcset", "srcset"):
+            value = props.get(key) or ""
+            if value:
+                first = value.split(",", 1)[0].strip().split(" ", 1)[0]
+                url = self.image_url(first)
+                if url:
+                    return url
+        return ""
+
     def handle_starttag(self, tag: str, attrs) -> None:
         props = dict(attrs)
         classes = set((props.get("class") or "").split())
@@ -199,11 +218,18 @@ class SourcePageMetadataParser(HTMLParser):
                 self.og_title = props.get("content") or ""
             if property_name in ("og:image", "twitter:image") and not self.og_image:
                 self.og_image = self.image_url(props.get("content") or "")
-        if tag == "img" and "ipsImage_thumbnailed" in classes and not self.poster_url:
-            self.poster_url = self.image_url(
-                props.get("src") or props.get("data-src") or ""
-            )
-            self.poster_alt = (props.get("alt") or "")[:200]
+        if tag == "img" and "ipsImage_thumbnailed" in classes:
+            # Several thumbnails may appear in an IPS topic; prefer a real
+            # image with the largest declared dimensions, not a tiny icon.
+            candidate = self.image_candidate(props)
+            try:
+                area = int(props.get("width") or 0) * int(props.get("height") or 0)
+            except ValueError:
+                area = 0
+            if candidate and (not self.poster_url or area > self.poster_area):
+                self.poster_url = candidate
+                self.poster_alt = (props.get("alt") or "")[:200]
+                self.poster_area = area
         if (tag == "span" and self.active_depth is None
                 and self.stack
                 and self.stack[-1][0] == "span"
