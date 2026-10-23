@@ -38,3 +38,17 @@ def test_stackmint_custom_continue_button_support():
     assert "continue_candidates: ctas" in backend
     assert "click_detail = await click_continue(tab)" in backend
     assert "No actionable Continue control detected" in backend
+
+
+def test_live_browser_streaming_wired():
+    root = Path(__file__).resolve().parents[1]
+    backend = (root / "app.py").read_text()
+    frontend = (root / "static/index.html").read_text()
+    assert 'live: bool = Field(default=True)' in backend
+    assert 'yield event("frame", image=capture' in backend
+    assert 'body.timeout, body.settle, body.live' in backend
+    assert 'id="liveStatus"' in frontend
+    assert 'id="toggleLive"' in frontend
+    assert "event.type==='frame'" in frontend
+    assert "live:true" in frontend
+    assert 'previewSection").classList.add' not in frontend
