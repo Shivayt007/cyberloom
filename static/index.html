@@ -10,6 +10,15 @@
     :root { color-scheme:dark; --bg:#0a0d14; --surface:#131924; --surface2:#171f2b; --line:#2b3546; --muted:#9daabe; --text:#f6f8fc; --orange:#ff9a5c; --green:#5de0a6; --red:#ff7482; --blue:#8ebcff; }
     *{box-sizing:border-box} body{margin:0;background: radial-gradient(ellipse 70% 40% at 50% -18%,#392922 0,transparent 100%),var(--bg);font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);min-height:100vh}button,input{font:inherit}
     .shell{max-width:900px;margin:0 auto;padding:24px 19px 78px}.nav{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:9px 0 55px}.brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:800;letter-spacing:-.45px}.brand-icon{width:37px;height:37px;display:grid;place-items:center;border-radius:12px;background:#2c211c;color:var(--orange);font-size:23px}.version,.eyebrow,.eyeline{font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:var(--muted);font-weight:700}.version{letter-spacing:.7px;border:1px solid var(--line);padding:6px 9px;border-radius:30px}.tag{display:inline-flex;align-items:center;gap:8px;color:var(--orange);font-size:12px;font-weight:700;background:rgba(255,154,92,.09);border:1px solid rgba(255,154,92,.22);padding:6px 12px;border-radius:20px}.tag:before{content:"";width:6px;height:6px;background:var(--orange);border-radius:100%}.hero h1{font-weight:850;letter-spacing:-2.5px;font-size:clamp(38px,6vw,59px);line-height:1.12;margin:18px 0 13px}.hero h1 em{font-style:normal;color:var(--orange)}.hero p{max-width:600px;color:var(--muted);line-height:1.75;margin:0 0 32px}.card{background:linear-gradient(160deg,rgba(26,33,46,.94),rgba(16,22,32,.98));border:1px solid var(--line);border-radius:18px;padding:23px;box-shadow:0 15px 50px rgba(0,0,0,.10)}.form-title{font-size:14px;font-weight:800;display:flex;justify-content:space-between;align-items:center;gap:10px}.secure{color:var(--muted);font-size:12px;font-weight:500}.secure svg{vertical-align:-2px;margin-right:3px}.fields{margin:23px 0 16px;display:grid;gap:16px}label{color:#bec9d8;font-size:12px;font-weight:700;display:block;margin:0 0 8px}input{width:100%;border:1px solid #354253;border-radius:10px;color:var(--text);outline:none;background:#0d121b;padding:14px 15px;transition:border-color .2s,box-shadow .2s;font-size:14px}input:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(255,154,92,.09)}input::placeholder{color:#69788a}.main-button{width:100%;display:flex;justify-content:center;gap:12px;align-items:center;border:0;border-radius:11px;background:var(--orange);color:#22150d;font-weight:800;padding:15px;cursor:pointer;transition:transform .15s,filter .15s}.main-button:hover{filter:brightness(1.08)}.main-button:active{transform:scale(.99)}.main-button:disabled{opacity:.60;cursor:wait}.hint{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:12px;margin-top:14px}.status-pill{color:var(--muted);font-size:12px;display:inline-flex;align-items:center;gap:7px}.dot{width:8px;height:8px;border-radius:50%;background:#647083}.dot.active{background:var(--orange);box-shadow:0 0 0 4px rgba(255,154,92,.13)}.dot.done{background:var(--green)}.dot.error{background:var(--red)}.section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:31px 0 14px}.section-title h2{font-size:16px;margin:0;letter-spacing:-.3px}.small{font-size:12px;color:var(--muted)}.stage-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.stage{min-height:124px;border:1px solid var(--line);border-radius:13px;background:var(--surface);padding:15px 13px}.stage-num{width:27px;height:27px;border-radius:8px;display:grid;place-items:center;background:#29303a;color:#acb7c5;font-size:12px;font-weight:750;margin-bottom:14px}.stage strong{display:block;font-size:12px;font-weight:750}.stage span{display:block;color:var(--muted);font-size:11px;margin-top:3px;line-height:1.35}.stage[data-status="active"]{border-color:#855b41;background:#221d1a}.stage[data-status="active"] .stage-num{background:var(--orange);color:#261307}.stage[data-status="done"]{border-color:#2c6251}.stage[data-status="done"] .stage-num{background:#1d4b3b;color:var(--green)}.stage[data-status="error"]{border-color:#943844}.stage[data-status="error"] .stage-num{background:#56212b;color:var(--red)}.terminal{overflow:hidden;border-radius:16px;border:1px solid var(--line);background:#080d14}.term-header{background:#151b26;display:flex;align-items:center;justify-content:space-between;gap:15px;border-bottom:1px solid var(--line);padding:13px 15px}.traffic{display:inline-flex;gap:6px;margin-right:8px}.traffic b{width:8px;height:8px;display:inline-block;border-radius:50%;background:#475263}.traffic b:first-child{background:#fc7468}.traffic b:nth-child(2){background:#f1be61}.traffic b:last-child{background:#4fc997}.term-title{font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#c0ccdb}.term-actions{display:flex;gap:7px} .ghost{color:#acb8c9;border:1px solid #344154;border-radius:7px;background:#202a37;padding:6px 10px;cursor:pointer;font-size:12px}.ghost:hover{color:#fff}.log-list{height:250px;overflow:auto;padding:16px 17px;font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}.log-line{display:flex;gap:12px;margin-bottom:4px}.time{flex:none;color:#536176}.message{color:#aab8c9}.log-line[data-level="success"] .message{color:var(--green)}.log-line[data-level="warn"] .message{color:#f4c276}.log-line[data-level="error"] .message{color:var(--red)}.log-placeholder{color:#6d7a8d}.result-info{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}.destination{padding:14px;border:1px solid #355448;border-radius:11px;background:#14241f;font-size:12px;overflow-wrap:anywhere}.destination strong{color:var(--green)}.destination a{color:#d4e6dd;word-break:break-all}.links{display:grid;gap:9px}.linkrow{display:flex;align-items:flex-start;gap:13px;justify-content:space-between;padding:13px 14px;border:1px solid var(--line);background:var(--surface);border-radius:11px}.linkbody{min-width:0;flex:1}.linkrow b{font-size:13px}.linkrow a{display:block;color:var(--blue);font-size:12px;overflow-wrap:anywhere;margin:5px 0}.kind{font-size:11px;color:var(--muted)}.empty{color:var(--muted);font-size:13px;text-align:center;padding:34px 15px;border:1px dashed var(--line);border-radius:13px}.foot{color:#6f7e93;font-size:11px;text-align:center;margin-top:35px;line-height:1.7}.hidden{display:none!important}
+    .live-toolbar{display:flex;gap:12px;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+    .live-pill{display:inline-flex;align-items:center;gap:8px;color:var(--green);font-size:12px;font-weight:750}
+    .live-pill::before{content:'';width:7px;height:7px;background:currentColor;border-radius:50%}
+    .browser-shell{border:1px solid #354253;border-radius:12px;background:#0b1018;overflow:hidden}
+    .browser-address{padding:9px 13px;color:var(--muted);font:12px ui-monospace,monospace;background:#1a2330;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .browser-image-container{position:relative;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:#0b1018}
+    .browser-image-container img{max-width:100%;width:100%;height:100%;object-fit:contain}
+    .browser-placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:22px;color:var(--muted);font-size:13px;background:#0b1018}
+    .browser-footer{color:var(--muted);font-size:11px;margin-top:12px;line-height:1.6}
     @media(max-width:630px){.shell{padding:14px 14px 65px}.nav{padding:6px 0 42px}.hero h1{letter-spacing:-1.8px}.card{padding:18px}.stage-grid{grid-template-columns:repeat(2,1fr)}.stage{min-height:109px}.secure{display:none}.log-list{height:225px}.linkrow{flex-wrap:wrap}}
   </style>
 </head>
@@ -40,8 +49,18 @@
       <div class="terminal"><div class="term-header"><span class="term-title"><span class="traffic"><b></b><b></b><b></b></span>cyberloom / console</span><div class="term-actions"><button class="ghost" type="button" id="copyLogs">Copy logs</button><button class="ghost" type="button" id="clearLogs">Clear</button></div></div>
         <div class="log-list" id="logList" aria-live="polite"><div class="log-placeholder">$ Ready. Enter a URL and click Inspect Link...</div></div></div>
     </section>
-    <section class="hidden" id="previewSection"><div class="section-title"><h2>VPS browser preview</h2><span class="small">CAPTURED IN CHROMIUM · NEVER SAVED ON SERVER</span></div>
-      <div class="card"><img id="browserPreview" alt="Screenshot of the page displayed in the VPS Chromium browser" style="width:100%;height:auto;border-radius:10px;border:1px solid var(--line)" loading="lazy"><p class="small" id="previewHelp">Compare this picture with the page on your phone. If they differ, the VPS may not be rendering the same verification step.</p></div>
+    <section id="previewSection" aria-label="Live browser screen"><div class="section-title"><h2>Live browser screen</h2><span class="small">REFRESHES EVERY ~2–3 SECONDS</span></div>
+      <div class="card">
+        <div class="live-toolbar"><span id="liveStatus" class="live-pill" aria-live="polite">Waiting for inspection</span><button class="ghost" type="button" id="toggleLive">Pause view</button></div>
+        <div class="browser-shell">
+          <div class="browser-address" id="liveAddress">Chromium · no page loaded</div>
+          <div class="browser-image-container">
+            <img id="browserPreview" class="hidden" alt="Near-live view of the webpage visible in the VPS Chromium browser">
+            <div id="livePlaceholder" class="browser-placeholder">Start an inspection above to see what the VPS browser is doing.</div>
+          </div>
+        </div>
+        <p class="browser-footer">Near-live screenshots, not a video or remote-control session. Pause stops the picture on this phone; the inspector continues running. Frames are streamed to your password-protected session and are not stored as files on the VPS.</p>
+      </div>
     </section>
     <section><div class="section-title"><h2>Links found <span id="count" class="small">(0)</span></h2><button class="ghost" id="copyLinks" type="button" disabled>Copy all links</button></div>
       <div id="destination" class="destination hidden"></div>
@@ -52,7 +71,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const stages = Array.from(document.querySelectorAll('.stage'));
-    let links = [], logLines = [], busy = false;
+    let links = [], logLines = [], busy = false, pausedView = false, latestFrame = null, frameCount = 0;
     const state = (label, mode='idle') => { $('statusText').textContent=label; $('stateDot').className='dot '+(mode==='idle'?'':mode); };
     function log(message, level='info', time=new Date().toLocaleTimeString('en-GB')) {
       if ($('logList').querySelector('.log-placeholder')) $('logList').replaceChildren();
@@ -76,7 +95,7 @@
       const copy=document.createElement('button');copy.className='ghost';copy.type='button';copy.textContent='Copy';copy.addEventListener('click',()=>navigator.clipboard.writeText(link.url).then(()=>{copy.textContent='Copied'}));
       row.append(body,copy);$('links').appendChild(row);
     }
-    function reset(){links=[];logLines=[];$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('previewSection').classList.add('hidden');$('browserPreview').removeAttribute('src');$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
     function handle(event){
       if(event.type==='log'){log(event.message,event.level,event.time);return;}
       if(event.type==='stage'){stage(event.step,event.status,event.detail);state(event.status==='error'?'Attention needed':'Inspecting...',event.status==='error'?'error':'active');return;}
@@ -85,11 +104,17 @@
         const a=document.createElement('a');a.href=event.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=event.url;
         $('destination').replaceChildren(label,a);$('destination').classList.remove('hidden');return;
       }
-      if(event.type==='screenshot'){
+      if(event.type==='frame' || event.type==='screenshot'){
         if(typeof event.image==='string' && event.image.startsWith('data:image/jpeg;base64,')){
-          $('browserPreview').src=event.image;
-          $('previewSection').classList.remove('hidden');
-          log('Captured a browser preview from the VPS; see below the terminal.','warn',event.time);
+          latestFrame=event.image;frameCount++;
+          if(!pausedView){
+            $('browserPreview').src=latestFrame;
+            $('browserPreview').classList.remove('hidden');
+            $('livePlaceholder').classList.add('hidden');
+            const host=(()=>{try{return new URL(event.url).hostname}catch{return 'unknown page'}})();
+            $('liveAddress').textContent='Tab #'+(event.tab||1)+' · '+host;
+            $('liveStatus').textContent='Live · '+frameCount+' frames · '+(event.elapsed??'—')+'s elapsed';
+          }
         }
         return;
       }
@@ -102,14 +127,14 @@
         log(event.message,'warn',event.time);return;
       }
       if(event.type==='link'){renderLink(event);return;}
-      if(event.type==='done'){state('Complete · '+event.elapsed+'s','done');log('Inspection finished · '+links.length+' link(s) detected','success',event.time);return;}
-      if(event.type==='error'){state('Inspection failed','error');log(event.message,'error',event.time);if(event.visited?.length)log('Visited: '+event.visited.join(' → '),'warn',event.time);}
+      if(event.type==='done'){state('Complete · '+event.elapsed+'s','done');$('liveStatus').textContent='Finished · last browser frame';log('Inspection finished · '+links.length+' link(s) detected','success',event.time);return;}
+      if(event.type==='error'){state('Inspection failed','error');$('liveStatus').textContent='Stopped · last browser frame';log(event.message,'error',event.time);if(event.visited?.length)log('Visited: '+event.visited.join(' → '),'warn',event.time);}
     }
     $('scanForm').addEventListener('submit',async(e)=>{
       e.preventDefault();if(busy)return;busy=true;reset();state('Starting...','active');$('startButton').disabled=true;$('buttonText').textContent='Inspecting...';
       const url=$('url').value.trim();
       try{
-        const response=await fetch('/api/inspect',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':$('password').value},body:JSON.stringify({url,timeout:120,settle:12})});
+        const response=await fetch('/api/inspect',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':$('password').value},body:JSON.stringify({url,timeout:120,settle:12,live:true})});
         if(!response.ok){let detail='Request failed ('+response.status+')';try{detail=(await response.json()).detail||detail}catch{};throw Error(detail)}
         if(!response.body)throw Error('Streaming is unavailable in this browser');
         const reader=response.body.getReader(),decoder=new TextDecoder();let pending='';
@@ -117,6 +142,15 @@
         if(pending.trim())handle(JSON.parse(pending));
         if($('stateDot').className.includes('active'))state('Stream closed','idle');
       }catch(error){handle({type:'error',message:error.message||String(error)});}finally{busy=false;$('startButton').disabled=false;$('buttonText').textContent='Inspect Link';}
+    });
+    $('toggleLive').addEventListener('click',()=>{
+      pausedView=!pausedView;
+      $('toggleLive').textContent=pausedView?'Resume view':'Pause view';
+      if(pausedView){$('liveStatus').textContent='Display paused · scan still running';}
+      else{
+        if(latestFrame){$('browserPreview').src=latestFrame;$('browserPreview').classList.remove('hidden');$('livePlaceholder').classList.add('hidden');}
+        $('liveStatus').textContent=busy?'Live · '+frameCount+' frames':'Last captured frame';
+      }
     });
     $('clearLogs').addEventListener('click',()=>{logLines=[];$('logList').innerHTML='<div class="log-placeholder">$ Logs cleared.</div>'});
     $('copyLogs').addEventListener('click',()=>navigator.clipboard.writeText(logLines.join('\n')).then(()=>log('Logs copied to clipboard')));
