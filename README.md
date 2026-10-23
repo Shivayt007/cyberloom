@@ -69,3 +69,11 @@ If a visible human-verification challenge is present, the existing manual verifi
 After the inspector reaches the final MessyCloud file page, it now looks for **[M1] DIRECT** links in regular anchor `href` attributes, related data URL attributes and accessible nested elements. Recognized links appear first in the results and in a separate **M1 Direct Download Link** section with a Copy button. It preserves the complete signed CDN URL (including `token` and `exp` query parameters) when copying. Terminal logs redact query strings to avoid unnecessarily exposing temporary access tokens. It does not download file contents or generate new tokens.
 
 Some pages create the actual file URL only after executing button-specific JavaScript. That case is not guaranteed: this implementation extracts URLs already made available in the accessible page DOM or markup and would need the page's exact M1 element implementation for further support. Signed URLs may expire and should be used promptly.
+
+## Collect all links on the final MessyCloud page
+
+The final-page inspector now gathers all discoverable links from ordinary anchor `href` attributes, server/download buttons, supported `data-*` URL attributes, inline `onclick` URLs and the accessible DOMs of embedded frames. It additionally searches HTML markup for direct file URLs (without fetching those files). The result area is **All MessyCloud links**, with **All links**, **Download / Servers**, and **Other links** filters and a **Copy all links** action. **[M1] DIRECT** still has its own prominent Copy button.
+
+Duplicate URLs are combined, and labelled server links take precedence when the same URL appears in multiple HTML locations. Signed `token`/`exp` parameters are preserved in links copied from the UI but hidden in diagnostic terminal messages.
+
+Limitations: no downloader, no execution of arbitrary inline JavaScript, and no CAPTCHA bypass. Links generated only by a future click or authorized API response might not exist in the page yet, so those cannot be guaranteed by static DOM extraction. Results are capped at 250 URLs per scan.
