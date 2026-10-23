@@ -46,8 +46,8 @@ def target_url(url: str) -> bool:
 def validate_start(url: str) -> str:
     try:
         p = urlsplit(url.strip())
-        if p.scheme not in ("http", "https") or not p.hostname or p.hostname.lower() not in ALLOWED_START:
-            raise ValueError(f"Only these start domains are allowed: {', '.join(sorted(ALLOWED_START))}")
+        if p.scheme not in ("http", "https") or not p.hostname or p.hostname.lower() not in (ALLOWED_START | TARGET_HOSTS):
+            raise ValueError("Enter a permitted Cyberloom short URL or a verified MessyCloud URL")
         if p.username or p.password or (p.port and p.port not in (80, 443)):
             raise ValueError("Credential URLs and custom ports are not allowed")
     except ValueError as exc:
@@ -158,6 +158,28 @@ async def click_continue(page) -> bool:
     return False
 
 
+async def needs_human_verification(page) -> bool:
+    """Recognize a visible verification prompt, without attempting to defeat it."""
+    markers = (
+        "verify you're human",
+        "verify you’re human",
+        "i'm human",
+        "i’m human",
+        "confirm you are human",
+        "human verification required",
+        "please verify you are human",
+        "verify that you are human",
+    )
+    for frame in page.frames:
+        try:
+            text = (await frame.locator("body").inner_text(timeout=800)).lower()
+            if any(marker in text for marker in markers):
+                return True
+        except (PlaywrightError, PlaywrightTimeout):
+            continue
+    return False
+
+
 async def inspect(url: str, timeout: int, settle: int):
     started = time.monotonic()
     deadline = started + timeout
@@ -192,6 +214,8 @@ async def inspect(url: str, timeout: int, settle: int):
             seen_tabs = {page}
             last_click = 0.0
             click_count = 0
+            verification_since = None
+            verification_page = None
             chosen = None
             while time.monotonic() < deadline:
                 pages = [p for p in context.pages if not p.is_closed()]
@@ -207,6 +231,35 @@ async def inspect(url: str, timeout: int, settle: int):
                 chosen = next((p for p in pages if target_url(p.url)), None)
                 if chosen:
                     break
+
+                # Don't waste two minutes silently on a human-verification gate.
+                # This cannot be solved by synthetic button presses in Chromium.
+                challenged = None
+                for tab in pages:
+                    if (urlsplit(tab.url).hostname or "").lower() in ("stackmint.ink", "www.stackmint.ink"):
+                        if await needs_human_verification(tab):
+                            challenged = tab
+                            break
+                if challenged is not None:
+                    if verification_page is challenged and verification_since is not None:
+                        if time.monotonic() - verification_since >= 3:
+                            yield event("stage", step=2, status="error",
+                                        detail="Manual human verification required")
+                            yield event("log", level="warn",
+                                        message="Stackmint shows a human-verification prompt. Headless Playwright cannot complete it.")
+                            yield event("manual", url=challenged.url,
+                                        message="Open the link in your own browser, complete verification, then paste the final MessyCloud URL into this website.")
+                            yield event("error",
+                                        message="Stopped at a human-verification page; increasing the countdown timeout will not fix this.",
+                                        visited=visited)
+                            return
+                    else:
+                        verification_page = challenged
+                        verification_since = time.monotonic()
+                else:
+                    verification_page = None
+                    verification_since = None
+
                 best = page if not page.is_closed() else next((p for p in pages if p.url not in ("about:blank", "chrome-error://chromewebdata/")), pages[0])
                 if len(pages) > 1 and not page.is_closed():
                     with suppress(PlaywrightError):
@@ -239,7 +292,7 @@ async def inspect(url: str, timeout: int, settle: int):
             yield event("destination", url=current_url, visited=visited)
             yield event("stage", step=4, status="active", detail="Watching links appear")
             found: dict[str, dict] = {}
-            settle_until = min(deadline, time.monotonic() + settle)
+            settle_until = time.monotonic() + settle
             while time.monotonic() < settle_until:
                 for link in await extract_links(chosen):
                     if link["url"] not in found:
