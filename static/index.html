@@ -16,7 +16,7 @@
 <body>
   <main class="shell">
     <nav class="nav"><div class="brand"><span class="brand-icon">⌁</span><span>Cyberloom<span style="color:var(--orange)">.</span></span></div><span class="version">LINK INSPECTOR / V1</span></nav>
-    <header class="hero"><span class="tag">POWERED BY PLAYWRIGHT</span><h1>Follow the link.<br><em>See every step.</em></h1><p>Paste a Cyberloom URL to watch its redirect journey in real time, see browser activity, and collect candidate links from MessyCloud.</p></header>
+    <header class="hero"><span class="tag">POWERED BY PLAYWRIGHT</span><h1>Follow the link.<br><em>See every step.</em></h1><p>Paste a Cyberloom URL to watch its redirect journey, including LinkVoyage or Stackmint, and collect links from the final MessyCloud file page. Human-verification challenges require manual completion.</p></header>
     <form id="scanForm" class="card" autocomplete="off">
       <div class="form-title">New inspection <span class="secure">🔒 Private access required</span></div>
       <div class="fields">
@@ -31,7 +31,7 @@
       <div class="stage-grid" id="stages">
         <div class="stage" data-step="1" data-status="idle"><div class="stage-num">01</div><strong>Browser</strong><span>Launch Chromium</span></div>
         <div class="stage" data-step="2" data-status="idle"><div class="stage-num">02</div><strong>Countdown</strong><span>Wait &amp; continue</span></div>
-        <div class="stage" data-step="3" data-status="idle"><div class="stage-num">03</div><strong>Redirect</strong><span>Reach MessyCloud</span></div>
+        <div class="stage" data-step="3" data-status="idle"><div class="stage-num">03</div><strong>Redirect</strong><span>Reach actual file page</span></div>
         <div class="stage" data-step="4" data-status="idle"><div class="stage-num">04</div><strong>Extract</strong><span>Collect destination links</span></div>
       </div>
     </section>
@@ -73,7 +73,7 @@
       const copy=document.createElement('button');copy.className='ghost';copy.type='button';copy.textContent='Copy';copy.addEventListener('click',()=>navigator.clipboard.writeText(link.url).then(()=>{copy.textContent='Copied'}));
       row.append(body,copy);$('links').appendChild(row);
     }
-    function reset(){links=[];logLines=[];$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach MessyCloud','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
     function handle(event){
       if(event.type==='log'){log(event.message,event.level,event.time);return;}
       if(event.type==='stage'){stage(event.step,event.status,event.detail);state(event.status==='error'?'Attention needed':'Inspecting...',event.status==='error'?'error':'active');return;}
