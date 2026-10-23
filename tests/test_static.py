@@ -29,3 +29,12 @@ def test_server_app_parses():
     import ast
     source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
     ast.parse(source)
+
+
+def test_stackmint_custom_continue_button_support():
+    root = Path(__file__).resolve().parents[1]
+    backend = (root / "app.py").read_text()
+    assert "frame.get_by_text(specific)" in backend
+    assert "continue_candidates: ctas" in backend
+    assert "click_detail = await click_continue(tab)" in backend
+    assert "No actionable Continue control detected" in backend
