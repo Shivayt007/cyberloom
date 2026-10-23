@@ -139,31 +139,80 @@ async def can_request_public(hostname: str, cache: dict[str, bool]) -> bool:
     return ok
 
 
-async def click_continue(page) -> bool:
-    selector = (
-        "button:visible, a:visible, input[type=button]:visible, input[type=submit]:visible, "
-        "[role=button]:visible"
-    )
-    pattern = re.compile(r"\b(continue|proceed|get\s*link|open\s*link|next\s*step)\b", re.I)
+async def click_continue(page) -> tuple[bool, str]:
+    """Click a visible, enabled Continue control in the current browser tab.
+
+    Stackmint's purple CTA can be rendered as a styled <div>/<span> rather
+    than a native button. Playwright's get_by_text() clicks the rendered
+    text and bubbles the user click to its handler, without forcing clicks
+    through overlays or human-verification challenges.
+    """
+    specific = re.compile(r"continue\\s+to\\s+destination", re.I)
+    generic = re.compile(r"\\b(continue|proceed|get\\s*link|open\\s*link|next\\s*step)\\b", re.I)
+    errors: list[str] = []
+    detected: list[str] = []
+
     for frame in page.frames:
+        # Highest priority: the exact CTA seen in Stackmint screenshot.
+        text_locator = frame.get_by_text(specific)
         try:
-            matches = frame.locator(selector).filter(has_text=pattern)
-            # Playwright input elements may not have textContent: check their value below.
-            count = min(await matches.count(), 12)
-            for i in range(count):
-                btn = matches.nth(i)
-                if await btn.is_enabled():
-                    await btn.click(timeout=2000)
-                    return True
-            inputs = frame.locator("input[value]:visible")
-            for i in range(min(await inputs.count(), 12)):
-                el = inputs.nth(i)
-                if pattern.search((await el.get_attribute("value")) or "") and await el.is_enabled():
-                    await el.click(timeout=2000)
-                    return True
-        except (PlaywrightError, asyncio.TimeoutError):
+            text_count = min(await text_locator.count(), 8)
+        except (PlaywrightError, PlaywrightTimeout) as exc:
+            errors.append("Text scan failed: " + str(exc).splitlines()[0][:90])
             continue
-    return False
+        for i in range(text_count):
+            control = text_locator.nth(i)
+            try:
+                if not await control.is_visible() or not await control.is_enabled():
+                    continue
+                tag = await control.evaluate("(el) => el.tagName.toLowerCase()", timeout=900)
+                detected.append("Continue to Destination <" + tag + ">")
+                await control.click(timeout=2300)
+                return True, "Continue to Destination <" + tag + ">"
+            except (PlaywrightError, PlaywrightTimeout) as exc:
+                errors.append("Text CTA click blocked: " + str(exc).splitlines()[0][:145])
+
+        # Some sites use a labelled anchor, div with click handler, or
+        # accessibility role instead of the expected text node.
+        selector = (
+            "a:visible, button:visible, [role=button]:visible, "
+            "[onclick]:visible, [tabindex]:visible, "
+            "input[type=button]:visible, input[type=submit]:visible"
+        )
+        try:
+            matches = frame.locator(selector).filter(has_text=generic)
+            count = min(await matches.count(), 16)
+            for i in range(count):
+                control = matches.nth(i)
+                try:
+                    if not await control.is_visible() or not await control.is_enabled():
+                        continue
+                    tag = await control.evaluate("(el) => el.tagName.toLowerCase()", timeout=900)
+                    label = (await control.inner_text(timeout=900)).strip()[:75]
+                    detected.append(label or "<" + tag + ">")
+                    await control.click(timeout=2300)
+                    return True, (label or "Continue") + " <" + tag + ">"
+                except (PlaywrightError, PlaywrightTimeout) as exc:
+                    errors.append("Control click blocked: " + str(exc).splitlines()[0][:145])
+            inputs = frame.locator('input[value]:visible')
+            for i in range(min(await inputs.count(), 12)):
+                control = inputs.nth(i)
+                try:
+                    label = (await control.get_attribute("value")) or ""
+                    if generic.search(label) and await control.is_enabled():
+                        detected.append(label[:65] + " <input>")
+                        await control.click(timeout=2300)
+                        return True, label[:65] + " <input>"
+                except (PlaywrightError, PlaywrightTimeout) as exc:
+                    errors.append("Input click blocked: " + str(exc).splitlines()[0][:145])
+        except (PlaywrightError, PlaywrightTimeout) as exc:
+            errors.append("Control scan failed: " + str(exc).splitlines()[0][:110])
+
+    if errors:
+        return False, "; ".join(errors[:2])
+    if detected:
+        return False, "Found a Continue control, but could not activate it"
+    return False, "No actionable Continue control detected"
 
 
 async def needs_human_verification(page) -> bool:
@@ -219,11 +268,22 @@ async def page_diagnostics(page) -> dict:
             };
             const body = (document.body?.innerText || '').toLowerCase();
             const buttons = Array.from(document.querySelectorAll(
-                'button, [role="button"], input[type="submit"], input[type="button"]'))
+                'a, button, [role="button"], [onclick], [tabindex], input[type="submit"], input[type="button"]'))
                 .filter(visible).slice(0, 12).map(el => ({
                     text: (el.innerText || el.value || el.getAttribute('aria-label') || '')
                         .trim().slice(0, 75),
-                    disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true'
+                    disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
+                    tag: el.tagName.toLowerCase()
+                }));
+            const ctas = Array.from(document.querySelectorAll('a, button, div, span, [role="button"]'))
+                .filter(el => visible(el) && /continue\\s+to\\s+destination/i.test(
+                    (el.innerText || '').trim()) &&
+                    (el.innerText || '').length < 100)
+                .slice(-6).map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    role: el.getAttribute('role') || '',
+                    text: (el.innerText || '').trim().slice(0,80),
+                    pointer: getComputedStyle(el).cursor
                 }));
             const frames = Array.from(document.querySelectorAll('iframe'));
             const challenge = /(verify|verification|captcha|human)/i.test(body)
@@ -235,6 +295,7 @@ async def page_diagnostics(page) -> dict:
                     .filter(visible).slice(0, 5)
                     .map(el => (el.innerText || '').trim().slice(0, 85)),
                 buttons,
+                continue_candidates: ctas,
                 iframe_count: frames.length,
                 body_present: body.trim().length > 15,
                 human_challenge: challenge,
@@ -314,6 +375,7 @@ async def inspect(url: str, timeout: int, settle: int):
             next_progress_log = time.monotonic() + 10
             last_click_by_tab = {}
             click_count_by_tab = {}
+            last_click_report = {}
             last_stackmint_url = None
             stackmint_since = None
             snapshot_sent = False
@@ -446,13 +508,22 @@ async def inspect(url: str, timeout: int, settle: int):
                         continue
                     if now - last_click_by_tab.get(tab, 0) < 5:
                         continue
-                    if await click_continue(tab):
+                    clicked, click_detail = await click_continue(tab)
+                    if clicked:
                         click_count_by_tab[tab] = click_count_by_tab.get(tab, 0) + 1
                         last_click_by_tab[tab] = time.monotonic()
-                        yield event("log", level="info",
-                                    message=f"Clicked Continue on tab #{pages.index(tab)+1}"
-                                            f" ({tab.url[:160]}, attempt {click_count_by_tab[tab]})")
+                        yield event("log", level="success",
+                                    message=f"Clicked {click_detail} on tab #{pages.index(tab)+1}"
+                                            f" (attempt {click_count_by_tab[tab]})")
                         break
+                    # Show a useful failed-action reason, but only once per 12s
+                    # to prevent overwhelming the mobile live-terminal UI.
+                    if click_detail != "No actionable Continue control detected":
+                        last = last_click_report.get(tab, 0)
+                        if time.monotonic() - last >= 12:
+                            yield event("log", level="warn",
+                                        message=f"Tab #{pages.index(tab)+1}: {click_detail[:220]}")
+                            last_click_report[tab] = time.monotonic()
                 await asyncio.sleep(1)
             if not chosen:
                 yield event("stage", step=2, status="error", detail="Final MessyCloud file page was not reached")
