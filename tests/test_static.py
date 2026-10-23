@@ -10,7 +10,7 @@ def test_required_files():
 
 def test_ui_has_controls():
     html=(Path(__file__).resolve().parents[1]/"static/index.html").read_text()
-    for text in ("id=\"url\"", "id=\"password\"", "id=\"logList\"", "id=\"links\"", "/api/inspect"):
+    for text in ("id=\"url\"", "id=\"logList\"", "id=\"links\"", "/api/inspect"):
         assert text in html
 
 
@@ -267,3 +267,82 @@ def test_link_event_kind_does_not_collide_with_event_type():
     assert parsed["url"] == link["url"]
     assert parsed["label"] == "[M1] DIRECT"
     assert "time" in parsed
+
+
+def test_public_multi_link_discovery_and_password_removal():
+    import ast
+    import html
+    import re
+    from html.parser import HTMLParser
+    from contextlib import suppress
+    from urllib.parse import urlsplit
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text()
+    module = ast.parse(source)
+    declarations = [
+        node for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and
+        node.name in ("CyberloomFinder", "discover_cyberloom_links", "is_short_link")
+    ]
+    env = {
+        "HTMLParser": HTMLParser, "re": re, "html": html, "urlsplit": urlsplit,
+        "suppress": suppress, "ALLOWED_START": {"cyberloom.best", "www.cyberloom.best"},
+        "MAX_BATCH_LINKS": 8
+    }
+    exec(compile(ast.Module(body=declarations, type_ignores=[]),
+                 "discovery_test", "exec"), env)
+    markup = """
+      <a href="https://www.cyberloom.best/l/first">1</a>
+      <a href="https://cyberloom.best/l/second?t=abc&amp;p=2">2</a>
+      <script>const x = "https:\\/\\/www.cyberloom.best\\/l\\/third";</script>
+      <a href="https://www.cyberloom.best/l/first">repeat</a>
+      <a href="https://evil.example/l/nope">bad</a>
+      <a href="https://www.cyberloom.best/out?t=secret">not short</a>
+    """
+    links = env["discover_cyberloom_links"](markup)
+    assert len(links) == 3, links
+    assert links[0] == "https://www.cyberloom.best/l/first"
+    assert "https://cyberloom.best/l/second?t=abc&p=2" in links
+    assert "https://www.cyberloom.best/l/third" in links
+    many = " ".join(f"https://www.cyberloom.best/l/L{i}" for i in range(40))
+    assert len(env["discover_cyberloom_links"](many)) == 8
+
+    front = (root / "static/index.html").read_text()
+    assert 'id="password"' not in front
+    assert "X-API-Key" not in front
+    assert 'id="batchList"' in front
+    assert "event.type==='discovered'" in front
+    assert "def verify_token(" not in source
+    assert "APP_PASSWORD" not in source
+    assert "PublicOnlyResolver" in source
+    assert "allow_redirects=False" in source
+    assert 'yield event("batch_done"' in source
+
+
+def test_public_url_prevents_private_and_custom_ports():
+    import ast
+    import ipaddress
+    from urllib.parse import urlsplit
+    from fastapi import HTTPException
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text()
+    mod = ast.parse(source)
+    validator = next(x for x in mod.body if
+                     isinstance(x, ast.FunctionDef)
+                     and x.name == "basic_public_url")
+    env = {"urlsplit": urlsplit, "ipaddress": ipaddress,
+           "HTTPException": HTTPException}
+    exec(compile(ast.Module(body=[validator], type_ignores=[]),
+                 "validation_test", "exec"), env)
+    valid = env["basic_public_url"]
+    assert valid("https://example.org/page") == "https://example.org/page"
+    for url in ("http://127.0.0.1/secret", "http://169.254.169.254/latest",
+                "http://localhost/admin", "http://10.0.0.1/",
+                "http://[::1]/", "https://example.org:8080/page",
+                "file:///etc/passwd", "https://a:b@example.org/"):
+        try:
+            valid(url)
+        except HTTPException as exc:
+            assert exc.status_code == 400
+        else:
+            raise AssertionError(f"Accepted unsafe URL: {url}")
