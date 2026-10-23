@@ -289,10 +289,13 @@ def test_public_multi_link_discovery_and_password_removal():
         "suppress": suppress, "ALLOWED_START": {"cyberloom.best", "www.cyberloom.best"},
         "MAX_BATCH_LINKS": 8
     }
-    env["CYBERLOOM_SHORT_PATTERN"] = re.compile(
-        r"(?:https?:)?//(?:www\\.)?cyberloom\\.best/l/"
-        r"[A-Za-z0-9_%\\-]+(?:\\?[A-Za-z0-9_%&=+\\-./]*)?", re.I
-    )
+    pattern = next(node for node in module.body
+                   if isinstance(node, ast.Assign)
+                   and any(isinstance(t, ast.Name)
+                           and t.id == "CYBERLOOM_SHORT_PATTERN"
+                           for t in node.targets))
+    exec(compile(ast.Module(body=[pattern], type_ignores=[]),
+                 "pattern_test", "exec"), env)
     exec(compile(ast.Module(body=declarations, type_ignores=[]),
                  "discovery_test", "exec"), env)
     markup = """
