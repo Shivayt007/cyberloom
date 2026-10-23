@@ -223,7 +223,6 @@ async def click_continue(page) -> tuple[bool, str]:
                         await page.mouse.click(
                             box["x"] + box["width"] / 2,
                             box["y"] + box["height"] / 2,
-                            timeout=1800
                         )
                         return True, label + " · verified unobstructed mouse click"
                 errors.append(
