@@ -103,3 +103,33 @@ def test_verification_popup_dismissal_respects_close_control():
     assert ".remove()" not in code
     assert "pointerEvents =" not in code
     assert "dismissed, details = await close_visible_verification_popup" in source
+
+
+
+def test_ready_cta_href_is_checked_before_navigation():
+    import ast
+    from urllib.parse import urlsplit, parse_qs
+
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
+    module = ast.parse(source)
+    validator = next(
+        node for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name == "validated_continue_url"
+    )
+    ns = {"urlsplit": urlsplit, "parse_qs": parse_qs}
+    exec(compile(ast.Module(body=[validator], type_ignores=[]), "cta_validator", "exec"), ns)
+    valid = ns["validated_continue_url"]
+    assert valid("https://www.cyberloom.best/out?t=cH9v9Uyp0lP6zuSi%2BO%2Btz")
+    assert valid("https://cyberloom.best/out?t=anotherToken")
+    assert not valid("http://www.cyberloom.best/out?t=token")
+    assert not valid("https://evil.example/out?t=token")
+    assert not valid("https://cyberloom.best.attacker.test/out?t=token")
+    assert not valid("https://www.cyberloom.best/in?t=token")
+    assert not valid("https://www.cyberloom.best/out")
+    assert not valid("https://www.cyberloom.best/out?t=")
+    assert not valid("https://user:secret@www.cyberloom.best/out?t=token")
+
+    assert 'frame.locator("a#cta[href]")' in source
+    assert 'await ready_continue_href(tab)' in source
+    assert 'await tab.goto(href, wait_until="domcontentloaded", timeout=18000)' in source
+    assert "followed_continue_hrefs.add(href)" in source
