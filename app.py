@@ -13,7 +13,7 @@ import socket
 import time
 from contextlib import suppress
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -305,6 +305,58 @@ async def click_continue(page) -> tuple[bool, str]:
     return False, "No actionable Continue control detected"
 
 
+def validated_continue_url(url: str) -> bool:
+    """Only allow the regular Cyberloom /out destination URL.
+
+    The query token is read from the rendered link, never forged or guessed.
+    Neither arbitrary URLs nor alternate ports are accepted.
+    """
+    try:
+        parsed = urlsplit(url)
+        return (
+            parsed.scheme == "https"
+            and (parsed.hostname or "").lower()
+                in {"www.cyberloom.best", "cyberloom.best"}
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+            and parsed.path == "/out"
+            and bool(parse_qs(parsed.query).get("t", [""])[0])
+        )
+    except ValueError:
+        return False
+
+
+async def ready_continue_href(page) -> str | None:
+    """Read the ordinary #cta href after the page displays Ready!.
+
+    We follow the page's own validated anchor URL with Chromium; no CAPTCHA,
+    client-side verification result, or token is forged.
+    """
+    for frame in page.frames:
+        try:
+            ready = frame.get_by_role("heading", name=re.compile(r"^ready!$", re.I))
+            if not await ready.count() or not await ready.first.is_visible():
+                continue
+            links = frame.locator("a#cta[href]")
+            for i in range(min(await links.count(), 3)):
+                anchor = links.nth(i)
+                if not await anchor.is_visible() or not await anchor.is_enabled():
+                    continue
+                label = (await anchor.inner_text(timeout=700)).strip()
+                if not re.search(r"continue\s+to\s+destination", label, re.I):
+                    continue
+                href = await anchor.get_attribute("href", timeout=700)
+                if not href:
+                    continue
+                resolved = urljoin(frame.url, href)
+                if validated_continue_url(resolved):
+                    return resolved
+        except (PlaywrightError, PlaywrightTimeout, ValueError):
+            continue
+    return None
+
+
 async def close_visible_verification_popup(page) -> tuple[bool, str]:
     """Use a popup's visible close/X control, if one exists.
 
@@ -544,6 +596,7 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
             click_count_by_tab = {}
             last_click_report = {}
             popup_close_attempts = set()
+            followed_continue_hrefs: set[str] = set()
             last_stackmint_url = None
             stackmint_since = None
             snapshot_sent = False
@@ -701,6 +754,39 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
                     in (ALLOWED_START | REDIRECT_HOSTS | TARGET_HOSTS)
                 ]
                 candidates.sort(key=lambda tab: (not target_url(tab.url), tab is not page))
+                followed_anchor = False
+                for tab in candidates:
+                    # Prefer the site's actual published href once "Ready!" is
+                    # visible. On Stackmint/Inkvoyage a fullscreen advertising
+                    # div can intercept clicks although the real #cta link is
+                    # already available. We do not remove or click through it.
+                    host = (urlsplit(tab.url).hostname or "").lower()
+                    if host not in REDIRECT_HOSTS:
+                        continue
+                    if await needs_human_verification(tab):
+                        continue
+                    href = await ready_continue_href(tab)
+                    if not href or href in followed_continue_hrefs:
+                        continue
+                    followed_continue_hrefs.add(href)
+                    yield event("log", level="info",
+                                message=f"Ready! Found validated #cta link on tab #{pages.index(tab)+1}: {href}")
+                    try:
+                        await tab.goto(href, wait_until="domcontentloaded", timeout=18000)
+                        yield event("log", level="success",
+                                    message=f"Followed Continue URL; browser now at {tab.url}")
+                    except PlaywrightTimeout:
+                        yield event("log", level="warn",
+                                    message=f"Continue URL navigation timed out; browser now at {tab.url}")
+                    except PlaywrightError as exc:
+                        yield event("log", level="warn",
+                                    message=f"Continue URL navigation error: {str(exc).splitlines()[0][:180]}")
+                    last_click_by_tab[tab] = time.monotonic()
+                    followed_anchor = True
+                    break
+                if followed_anchor:
+                    await asyncio.sleep(1)
+                    continue
                 for tab in candidates:
                     if click_count_by_tab.get(tab, 0) >= 12:
                         continue
