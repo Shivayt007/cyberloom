@@ -179,7 +179,7 @@ async def click_continue(page) -> tuple[bool, str]:
         before_tabs = len(page.context.pages)
         try:
             # More time than the former 2300ms; the target can be animating.
-            await control.click(timeout=5000)
+            await control.click(timeout=1600)
             return True, label + " · normal click"
         except (PlaywrightError, PlaywrightTimeout) as exc:
             # A slow redirect/pop-up may already have been triggered.
@@ -203,14 +203,29 @@ async def click_continue(page) -> tuple[bool, str]:
                         hit === el || el.contains(hit) ||
                         (!!owner && (hit === owner || owner.contains(hit)))
                     );
+                    const hs = hit ? getComputedStyle(hit) : null;
+                    const hr = hit ? hit.getBoundingClientRect() : null;
+                    const blocker = !safe && hit ? {
+                        tag: hit.tagName.toLowerCase(),
+                        id: (hit.id || "").slice(0, 60),
+                        class: String(hit.className || "").slice(0, 100),
+                        position: hs.position,
+                        zIndex: hs.zIndex,
+                        pointerEvents: hs.pointerEvents,
+                        opacity: hs.opacity,
+                        ariaLabel: (hit.getAttribute("aria-label") || "").slice(0, 60),
+                        role: (hit.getAttribute("role") || "").slice(0, 35),
+                        text: (hit.innerText || "").trim().slice(0, 85),
+                        bounds: hr ? {
+                            width: Math.round(hr.width),
+                            height: Math.round(hr.height)
+                        } : null
+                    } : null;
                     return {
                         safe,
                         tag: el.tagName.toLowerCase(),
                         hit: hit ? hit.tagName.toLowerCase() : "none",
-                        overlay: (!safe && hit)
-                            ? (hit.tagName.toLowerCase() + " " +
-                                (hit.getAttribute("class") || "").slice(0, 60))
-                            : "",
+                        blocker,
                         centerVisible: x >= 0 && y >= 0 &&
                             x < window.innerWidth && y < window.innerHeight
                     };
@@ -225,12 +240,14 @@ async def click_continue(page) -> tuple[bool, str]:
                             box["y"] + box["height"] / 2,
                         )
                         return True, label + " · verified unobstructed mouse click"
-                errors.append(
-                    label + ": " + reason +
-                    ("; element blocked by " + str(info.get("overlay"))
-                     if info.get("overlay") else
-                     "; center not reachable (tag " + str(info.get("tag")) + ")")
-                )
+                blocker = info.get("blocker")
+                if blocker:
+                    errors.append(label + ": " + reason + "; blocker=" +
+                                  json.dumps(blocker, ensure_ascii=False)[:330])
+                else:
+                    errors.append(label + ": " + reason +
+                                  "; center not reachable (tag " +
+                                  str(info.get("tag")) + ")")
             except (PlaywrightError, PlaywrightTimeout) as detail_exc:
                 errors.append(label + ": " + reason + " · hit-test: " +
                               why_click_failed(detail_exc))
@@ -261,6 +278,8 @@ async def click_continue(page) -> tuple[bool, str]:
                 result = await try_click(group.nth(i), label)
                 if result and result[0]:
                     return result
+                if errors:
+                    return False, errors[-1]
 
         if found_specific:
             continue
@@ -276,6 +295,8 @@ async def click_continue(page) -> tuple[bool, str]:
                 result = await try_click(group.nth(i), "Continue")
                 if result and result[0]:
                     return result
+                if errors:
+                    return False, errors[-1]
         except (PlaywrightError, PlaywrightTimeout):
             pass
 
@@ -596,6 +617,9 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
                     if now - last_click_by_tab.get(tab, 0) < 5:
                         continue
                     clicked, click_detail = await click_continue(tab)
+                    # Throttle failures too, so Playwright screenshot streaming
+                    # stays responsive while an overlay blocks the control.
+                    last_click_by_tab[tab] = time.monotonic()
                     if clicked:
                         click_count_by_tab[tab] = click_count_by_tab.get(tab, 0) + 1
                         last_click_by_tab[tab] = time.monotonic()
@@ -609,7 +633,7 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
                         last = last_click_report.get(tab, 0)
                         if time.monotonic() - last >= 12:
                             yield event("log", level="warn",
-                                        message=f"Tab #{pages.index(tab)+1}: {click_detail[:220]}")
+                                        message=f"Tab #{pages.index(tab)+1}: {click_detail[:620]}")
                             last_click_report[tab] = time.monotonic()
                 await asyncio.sleep(1)
             if not chosen:
