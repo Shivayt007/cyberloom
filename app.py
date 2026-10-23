@@ -41,6 +41,7 @@ class InspectRequest(BaseModel):
     url: str = Field(min_length=12, max_length=2048)
     timeout: int = Field(default=120, ge=30, le=180)
     settle: int = Field(default=12, ge=3, le=25)
+    live: bool = Field(default=True)
 
 
 def target_url(url: str) -> bool:
@@ -318,7 +319,7 @@ async def preview_image(page) -> str | None:
         return None
 
 
-async def inspect(url: str, timeout: int, settle: int):
+async def inspect(url: str, timeout: int, settle: int, live: bool = True):
     started = time.monotonic()
     deadline = started + timeout
     visited: list[str] = []
@@ -379,6 +380,7 @@ async def inspect(url: str, timeout: int, settle: int):
             last_stackmint_url = None
             stackmint_since = None
             snapshot_sent = False
+            next_live_capture = 0.0
             while time.monotonic() < deadline:
                 pages = [p for p in context.pages if not p.is_closed()]
                 # Inspect every tab for the final destination, but do not let
@@ -441,6 +443,23 @@ async def inspect(url: str, timeout: int, settle: int):
                     verification_since = None
 
                 now = time.monotonic()
+                # Near-live view: capture a small compressed JPEG every ~2.5s.
+                # The existing authenticated NDJSON stream carries these frames;
+                # nothing is saved on disk. This is a passive view, not remote control.
+                if live and now >= next_live_capture:
+                    next_live_capture = now + 2.5
+                    watched = next(
+                        (tab for tab in reversed(pages)
+                         if (urlsplit(tab.url).hostname or "").lower()
+                         in (ALLOWED_START | REDIRECT_HOSTS | TARGET_HOSTS)),
+                        page
+                    )
+                    if watched and not watched.is_closed():
+                        capture = await preview_image(watched)
+                        if capture:
+                            yield event("frame", image=capture, url=watched.url,
+                                        tab=pages.index(watched) + 1,
+                                        elapsed=round(time.monotonic() - started, 1))
                 # Capture what headless Chromium actually sees. A URL alone
                 # cannot tell whether JS loaded, a button is disabled, or a
                 # human-verification iframe prevented progression.
@@ -549,6 +568,13 @@ async def inspect(url: str, timeout: int, settle: int):
                 pass
             settle_until = time.monotonic() + settle
             while time.monotonic() < settle_until:
+                if live and time.monotonic() >= next_live_capture and not chosen.is_closed():
+                    next_live_capture = time.monotonic() + 2.5
+                    capture = await preview_image(chosen)
+                    if capture:
+                        yield event("frame", image=capture, url=chosen.url,
+                                    tab=context.pages.index(chosen) + 1,
+                                    elapsed=round(time.monotonic() - started, 1))
                 for link in await extract_links(chosen):
                     if link["url"] not in found:
                         found[link["url"]] = link
@@ -586,7 +612,7 @@ async def inspect_api(body: InspectRequest, request: Request, x_api_key: str | N
     async def feed():
         async with RUN_LOCK:
             try:
-                async for message in inspect(safe_url, body.timeout, body.settle):
+                async for message in inspect(safe_url, body.timeout, body.settle, body.live):
                     if await request.is_disconnected():
                         break
                     yield message
