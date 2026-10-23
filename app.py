@@ -29,6 +29,7 @@ SKIP_PATHS = ("/login", "/register", "/terms", "/privacy", "/contact", "/about",
 # can also appear between them; we log it but do not click controls on ad pages.
 REDIRECT_HOSTS = {
     "stackmint.ink", "www.stackmint.ink",
+    "inkvoyage.xyz", "www.inkvoyage.xyz",
     "linkvoyage.xyz", "www.linkvoyage.xyz",
 }
 app = FastAPI(title="Cyberloom Link Inspector", docs_url=None, redoc_url=None, openapi_url=None)
