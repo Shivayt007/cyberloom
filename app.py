@@ -25,6 +25,12 @@ ALLOWED_START = {v.strip().lower() for v in os.getenv("ALLOWED_START_HOSTS", "cy
 TARGET_HOSTS = {v.strip().lower() for v in os.getenv("TARGET_HOSTS", "messycloud.ink,www.messycloud.ink").split(",") if v.strip()}
 SUSPICIOUS_LINK_KEYS = ("gofile.io", "pixeldrain", "vikingfile", "r2.dev", "workers.dev", "download", "mediafire.com", "mega.nz", "drive.google.com", "1fichier.com")
 SKIP_PATHS = ("/login", "/register", "/terms", "/privacy", "/contact", "/about", "/dmca")
+# Redirect domains observed during normal browser navigation. An advertising page
+# can also appear between them; we log it but do not click controls on ad pages.
+REDIRECT_HOSTS = {
+    "stackmint.ink", "www.stackmint.ink",
+    "linkvoyage.xyz", "www.linkvoyage.xyz",
+}
 app = FastAPI(title="Cyberloom Link Inspector", docs_url=None, redoc_url=None, openapi_url=None)
 RUN_LOCK = asyncio.Lock()
 
@@ -180,6 +186,25 @@ async def needs_human_verification(page) -> bool:
     return False
 
 
+async def is_final_messycloud_page(page) -> bool:
+    """Recognize the actual file/server page instead of an intermediate
+    MessyCloud 'Continue to Destination' countdown. Both may use one URL.
+    """
+    if not target_url(page.url):
+        return False
+    try:
+        body = (await page.locator("body").inner_text(timeout=1000)).lower()
+    except (PlaywrightError, PlaywrightTimeout):
+        return False
+    if "continue to destination" in body and "choose a server to download" not in body:
+        return False
+    return (
+        "choose a server to download" in body
+        or "supports resume" in body
+        or ("back to home" in body and "direct" in body)
+    )
+
+
 async def inspect(url: str, timeout: int, settle: int):
     started = time.monotonic()
     deadline = started + timeout
@@ -217,6 +242,10 @@ async def inspect(url: str, timeout: int, settle: int):
             verification_since = None
             verification_page = None
             chosen = None
+            logged_interstitials = set()
+            next_progress_log = time.monotonic() + 10
+            last_click_by_tab = {}
+            click_count_by_tab = {}
             while time.monotonic() < deadline:
                 pages = [p for p in context.pages if not p.is_closed()]
                 # Inspect every tab for the final destination, but do not let
@@ -228,7 +257,18 @@ async def inspect(url: str, timeout: int, settle: int):
                     if tab.url not in visited and tab.url not in ("about:blank", "chrome-error://chromewebdata/"):
                         visited.append(tab.url)
                         yield event("log", level="info", message=f"Tab #{index} URL: {tab.url[:250]}")
-                chosen = next((p for p in pages if target_url(p.url)), None)
+                # A MessyCloud URL may still show another "Continue" screen.
+                # Only finish when the file page (including server options) is visible.
+                chosen = None
+                for tab in pages:
+                    if target_url(tab.url):
+                        if await is_final_messycloud_page(tab):
+                            chosen = tab
+                            break
+                        if tab not in logged_interstitials:
+                            logged_interstitials.add(tab)
+                            yield event("log", level="info",
+                                        message="MessyCloud intermediate page detected; waiting for the actual file/server page")
                 if chosen:
                     break
 
@@ -236,7 +276,7 @@ async def inspect(url: str, timeout: int, settle: int):
                 # This cannot be solved by synthetic button presses in Chromium.
                 challenged = None
                 for tab in pages:
-                    if (urlsplit(tab.url).hostname or "").lower() in ("stackmint.ink", "www.stackmint.ink"):
+                    if (urlsplit(tab.url).hostname or "").lower() in (REDIRECT_HOSTS | TARGET_HOSTS):
                         if await needs_human_verification(tab):
                             challenged = tab
                             break
@@ -246,7 +286,7 @@ async def inspect(url: str, timeout: int, settle: int):
                             yield event("stage", step=2, status="error",
                                         detail="Manual human verification required")
                             yield event("log", level="warn",
-                                        message="Stackmint shows a human-verification prompt. Headless Playwright cannot complete it.")
+                                        message="Redirect page shows a human-verification prompt. Headless Playwright cannot complete it.")
                             yield event("manual", url=challenged.url,
                                         message="Open the link in your own browser, complete verification, then paste the final MessyCloud URL into this website.")
                             yield event("error",
@@ -260,38 +300,60 @@ async def inspect(url: str, timeout: int, settle: int):
                     verification_page = None
                     verification_since = None
 
-                best = page if not page.is_closed() else next((p for p in pages if p.url not in ("about:blank", "chrome-error://chromewebdata/")), pages[0])
-                if len(pages) > 1 and not page.is_closed():
-                    with suppress(PlaywrightError):
-                        await page.bring_to_front()
-                if best.url != last_seen:
-                    if last_seen:
-                        yield event("log", level="info", message=f"Navigation: {best.url}")
-                    if best.url not in visited:
-                        visited.append(best.url)
-                    last_seen = best.url
                 now = time.monotonic()
-                if now - last_click >= 4 and click_count < 12:
-                    if await click_continue(best):
-                        click_count += 1
-                        last_click = now
-                        yield event("log", level="info", message=f"Clicked Continue / Proceed (attempt {click_count})")
-                if (int(now - started) % 10 == 0) and now - started > 1:
-                    pass
+                if now >= next_progress_log:
+                    active = " | ".join(
+                        f"#{idx}: {tab.url[:135]}"
+                        for idx, tab in enumerate(pages, start=1)
+                    )
+                    yield event("log", level="info",
+                                message=f"Elapsed {int(now-started)}s/{timeout}s; tabs: {active[:950]}")
+                    next_progress_log = now + 10
+
+                # Do not click generic Continue buttons on unrelated ad domains.
+                # Prefer a MessyCloud interstitial when present, otherwise use
+                # the original chain tab or recognized redirect domains.
+                candidates = [
+                    tab for tab in pages
+                    if (urlsplit(tab.url).hostname or "").lower()
+                    in (ALLOWED_START | REDIRECT_HOSTS | TARGET_HOSTS)
+                ]
+                candidates.sort(key=lambda tab: (not target_url(tab.url), tab is not page))
+                for tab in candidates:
+                    if click_count_by_tab.get(tab, 0) >= 12:
+                        continue
+                    if now - last_click_by_tab.get(tab, 0) < 5:
+                        continue
+                    if await click_continue(tab):
+                        click_count_by_tab[tab] = click_count_by_tab.get(tab, 0) + 1
+                        last_click_by_tab[tab] = time.monotonic()
+                        yield event("log", level="info",
+                                    message=f"Clicked Continue on tab #{pages.index(tab)+1}"
+                                            f" ({tab.url[:160]}, attempt {click_count_by_tab[tab]})")
+                        break
                 await asyncio.sleep(1)
             if not chosen:
-                yield event("stage", step=2, status="error", detail="Target destination was not reached")
-                yield event("error", message=f"MessyCloud was not reached within {timeout}s. The site may require a manual CAPTCHA, an extra button, or could be blocking automation.", visited=visited)
+                yield event("stage", step=2, status="error", detail="Final MessyCloud file page was not reached")
+                tabs = [f"#{i}: {tab.url}" for i, tab in enumerate(context.pages, start=1) if not tab.is_closed()]
+                yield event("log", level="warn", message="Tabs at timeout: " + " | ".join(tabs)[:1600])
+                yield event("error", message=f"Final MessyCloud file page was not reached within {timeout}s. Check for a human-verification prompt or changed intermediate redirect.", visited=visited)
                 return
             current_url = chosen.url
             if current_url not in visited:
                 visited.append(current_url)
             yield event("stage", step=2, status="done", detail="Redirect completed")
-            yield event("stage", step=3, status="done", detail="Verified MessyCloud destination")
-            yield event("log", level="success", message=f"Destination found: {current_url}")
+            yield event("stage", step=3, status="done", detail="Verified MessyCloud file page")
+            yield event("log", level="success", message=f"Final MessyCloud file page found: {current_url}")
             yield event("destination", url=current_url, visited=visited)
             yield event("stage", step=4, status="active", detail="Watching links appear")
             found: dict[str, dict] = {}
+            try:
+                file_text = (await chosen.locator("body").inner_text(timeout=1000)).lower()
+                if "m1" in file_text and "direct" in file_text:
+                    yield event("log", level="success",
+                                message="MessyCloud shows an M1 DIRECT server option; link capture depends on whether the page exposes its URL")
+            except (PlaywrightError, PlaywrightTimeout):
+                pass
             settle_until = time.monotonic() + settle
             while time.monotonic() < settle_until:
                 for link in await extract_links(chosen):
