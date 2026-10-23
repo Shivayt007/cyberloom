@@ -19,7 +19,8 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-import httpx
+import aiohttp
+from aiohttp.abc import AbstractResolver
 from playwright.async_api import async_playwright, Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
 ROOT = Path(__file__).parent
@@ -152,25 +153,61 @@ def discover_cyberloom_links(markup: str) -> list[str]:
     return list(found)
 
 
+class PublicOnlyResolver(AbstractResolver):
+    """Resolve each source host to publicly routable addresses only.
+
+    aiohttp connects to the returned IPs, rather than performing a second
+    unchecked DNS lookup after validation (DNS-rebinding protection).
+    """
+
+    async def resolve(self, host: str, port: int = 0,
+                      family: int = socket.AF_UNSPEC):
+        try:
+            entries = await asyncio.wait_for(
+                asyncio.to_thread(
+                    socket.getaddrinfo, host, port, family,
+                    socket.SOCK_STREAM
+                ),
+                timeout=3
+            )
+            records = []
+            for af, socktype, proto, name, addr in entries:
+                ip = ipaddress.ip_address(addr[0].split("%")[0])
+                if not ip.is_global:
+                    raise OSError("Private or nonpublic source DNS address rejected")
+                records.append({
+                    "hostname": host, "host": str(ip), "port": port,
+                    "family": af, "proto": proto, "flags": socket.AI_NUMERICHOST
+                })
+            if not records:
+                raise OSError("No public DNS results for source website")
+            return records
+        except (OSError, ValueError, asyncio.TimeoutError) as exc:
+            raise OSError(f"Source website host cannot be resolved safely: {exc}") from exc
+
+    async def close(self):
+        pass
+
+
 async def discover_from_website(url: str) -> tuple[list[str], str]:
-    """HTML-only discovery with bounded content, time, and redirect hops."""
+    """HTML-only discovery, 2MB max, public DNS only, <=3 redirects."""
     current = basic_public_url(url)
-    cache: dict[str, bool] = {}
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; CyberloomLinkInspector/2.0)",
         "Accept": "text/html,text/plain;q=0.8,*/*;q=0.2",
     }
-    async with httpx.AsyncClient(
-        follow_redirects=False, timeout=httpx.Timeout(12.0),
+    connector = aiohttp.TCPConnector(
+        resolver=PublicOnlyResolver(), use_dns_cache=False, limit=2
+    )
+    timeout = aiohttp.ClientTimeout(total=25, connect=8, sock_read=12)
+    async with aiohttp.ClientSession(
+        connector=connector, timeout=timeout,
         trust_env=False, headers=headers
     ) as client:
         for hop in range(4):
             basic_public_url(current)
-            parsed = urlsplit(current)
-            if not await can_request_public(parsed.hostname or "", cache):
-                raise ValueError("Source host is private, unresolved, or not publicly routable")
-            async with client.stream("GET", current) as response:
-                if response.status_code in (301, 302, 303, 307, 308):
+            async with client.get(current, allow_redirects=False) as response:
+                if response.status in (301, 302, 303, 307, 308):
                     location = response.headers.get("location")
                     if not location:
                         raise ValueError("Source redirect has no Location header")
@@ -179,11 +216,13 @@ async def discover_from_website(url: str) -> tuple[list[str], str]:
                 response.raise_for_status()
                 content_type = response.headers.get("content-type", "").lower()
                 if content_type and not any(
-                    item in content_type for item in ("text/html", "text/plain", "application/xhtml")
+                    item in content_type for item in (
+                        "text/html", "text/plain", "application/xhtml"
+                    )
                 ):
                     raise ValueError("Source is not an HTML/text webpage")
                 chunks = bytearray()
-                async for part in response.aiter_bytes():
+                async for part in response.content.iter_chunked(65536):
                     chunks.extend(part)
                     if len(chunks) > MAX_SOURCE_BYTES:
                         raise ValueError("Source exceeds the 2 MB discovery limit")
@@ -1204,7 +1243,7 @@ async def inspect_api(body: InspectRequest, request: Request):
                                 total=len(links), success=succeeded)
                 yield event("batch_done", total=processed,
                             completed=completed, failed=failed)
-            except (httpx.HTTPError, OSError, ValueError, HTTPException) as exc:
+            except (aiohttp.ClientError, OSError, ValueError, HTTPException, asyncio.TimeoutError) as exc:
                 yield event("error", message=f"Unable to discover Cyberloom links: {str(exc)[:220]}")
             except Exception as exc:
                 yield event("error", message=f"Unexpected scanner error: {type(exc).__name__}")
