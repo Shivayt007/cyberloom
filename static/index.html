@@ -10,6 +10,14 @@
     :root { color-scheme:dark; --bg:#0a0d14; --surface:#131924; --surface2:#171f2b; --line:#2b3546; --muted:#9daabe; --text:#f6f8fc; --orange:#ff9a5c; --green:#5de0a6; --red:#ff7482; --blue:#8ebcff; }
     *{box-sizing:border-box} body{margin:0;background: radial-gradient(ellipse 70% 40% at 50% -18%,#392922 0,transparent 100%),var(--bg);font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);min-height:100vh}button,input{font:inherit}
     .shell{max-width:900px;margin:0 auto;padding:24px 19px 78px}.nav{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:9px 0 55px}.brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:800;letter-spacing:-.45px}.brand-icon{width:37px;height:37px;display:grid;place-items:center;border-radius:12px;background:#2c211c;color:var(--orange);font-size:23px}.version,.eyebrow,.eyeline{font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:var(--muted);font-weight:700}.version{letter-spacing:.7px;border:1px solid var(--line);padding:6px 9px;border-radius:30px}.tag{display:inline-flex;align-items:center;gap:8px;color:var(--orange);font-size:12px;font-weight:700;background:rgba(255,154,92,.09);border:1px solid rgba(255,154,92,.22);padding:6px 12px;border-radius:20px}.tag:before{content:"";width:6px;height:6px;background:var(--orange);border-radius:100%}.hero h1{font-weight:850;letter-spacing:-2.5px;font-size:clamp(38px,6vw,59px);line-height:1.12;margin:18px 0 13px}.hero h1 em{font-style:normal;color:var(--orange)}.hero p{max-width:600px;color:var(--muted);line-height:1.75;margin:0 0 32px}.card{background:linear-gradient(160deg,rgba(26,33,46,.94),rgba(16,22,32,.98));border:1px solid var(--line);border-radius:18px;padding:23px;box-shadow:0 15px 50px rgba(0,0,0,.10)}.form-title{font-size:14px;font-weight:800;display:flex;justify-content:space-between;align-items:center;gap:10px}.secure{color:var(--muted);font-size:12px;font-weight:500}.secure svg{vertical-align:-2px;margin-right:3px}.fields{margin:23px 0 16px;display:grid;gap:16px}label{color:#bec9d8;font-size:12px;font-weight:700;display:block;margin:0 0 8px}input{width:100%;border:1px solid #354253;border-radius:10px;color:var(--text);outline:none;background:#0d121b;padding:14px 15px;transition:border-color .2s,box-shadow .2s;font-size:14px}input:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(255,154,92,.09)}input::placeholder{color:#69788a}.main-button{width:100%;display:flex;justify-content:center;gap:12px;align-items:center;border:0;border-radius:11px;background:var(--orange);color:#22150d;font-weight:800;padding:15px;cursor:pointer;transition:transform .15s,filter .15s}.main-button:hover{filter:brightness(1.08)}.main-button:active{transform:scale(.99)}.main-button:disabled{opacity:.60;cursor:wait}.hint{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:12px;margin-top:14px}.status-pill{color:var(--muted);font-size:12px;display:inline-flex;align-items:center;gap:7px}.dot{width:8px;height:8px;border-radius:50%;background:#647083}.dot.active{background:var(--orange);box-shadow:0 0 0 4px rgba(255,154,92,.13)}.dot.done{background:var(--green)}.dot.error{background:var(--red)}.section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:31px 0 14px}.section-title h2{font-size:16px;margin:0;letter-spacing:-.3px}.small{font-size:12px;color:var(--muted)}.stage-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.stage{min-height:124px;border:1px solid var(--line);border-radius:13px;background:var(--surface);padding:15px 13px}.stage-num{width:27px;height:27px;border-radius:8px;display:grid;place-items:center;background:#29303a;color:#acb7c5;font-size:12px;font-weight:750;margin-bottom:14px}.stage strong{display:block;font-size:12px;font-weight:750}.stage span{display:block;color:var(--muted);font-size:11px;margin-top:3px;line-height:1.35}.stage[data-status="active"]{border-color:#855b41;background:#221d1a}.stage[data-status="active"] .stage-num{background:var(--orange);color:#261307}.stage[data-status="done"]{border-color:#2c6251}.stage[data-status="done"] .stage-num{background:#1d4b3b;color:var(--green)}.stage[data-status="error"]{border-color:#943844}.stage[data-status="error"] .stage-num{background:#56212b;color:var(--red)}.terminal{overflow:hidden;border-radius:16px;border:1px solid var(--line);background:#080d14}.term-header{background:#151b26;display:flex;align-items:center;justify-content:space-between;gap:15px;border-bottom:1px solid var(--line);padding:13px 15px}.traffic{display:inline-flex;gap:6px;margin-right:8px}.traffic b{width:8px;height:8px;display:inline-block;border-radius:50%;background:#475263}.traffic b:first-child{background:#fc7468}.traffic b:nth-child(2){background:#f1be61}.traffic b:last-child{background:#4fc997}.term-title{font:600 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#c0ccdb}.term-actions{display:flex;gap:7px} .ghost{color:#acb8c9;border:1px solid #344154;border-radius:7px;background:#202a37;padding:6px 10px;cursor:pointer;font-size:12px}.ghost:hover{color:#fff}.log-list{height:250px;overflow:auto;padding:16px 17px;font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}.log-line{display:flex;gap:12px;margin-bottom:4px}.time{flex:none;color:#536176}.message{color:#aab8c9}.log-line[data-level="success"] .message{color:var(--green)}.log-line[data-level="warn"] .message{color:#f4c276}.log-line[data-level="error"] .message{color:var(--red)}.log-placeholder{color:#6d7a8d}.result-info{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px}.destination{padding:14px;border:1px solid #355448;border-radius:11px;background:#14241f;font-size:12px;overflow-wrap:anywhere}.destination strong{color:var(--green)}.destination a{color:#d4e6dd;word-break:break-all}.links{display:grid;gap:9px}.linkrow{display:flex;align-items:flex-start;gap:13px;justify-content:space-between;padding:13px 14px;border:1px solid var(--line);background:var(--surface);border-radius:11px}.linkbody{min-width:0;flex:1}.linkrow b{font-size:13px}.linkrow a{display:block;color:var(--blue);font-size:12px;overflow-wrap:anywhere;margin:5px 0}.kind{font-size:11px;color:var(--muted)}.empty{color:var(--muted);font-size:13px;text-align:center;padding:34px 15px;border:1px dashed var(--line);border-radius:13px}.foot{color:#6f7e93;font-size:11px;text-align:center;margin-top:35px;line-height:1.7}.hidden{display:none!important}
+    .source-meta-layout{display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:18px;align-items:start}
+    .source-meta-detail{min-width:0}
+    .source-field-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+    .source-meta-title{font-size:16px;line-height:1.5;font-weight:700;overflow-wrap:anywhere}
+    .source-url{display:block;overflow-wrap:anywhere;font-size:13px;color:var(--blue);line-height:1.5}
+    .source-poster{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface2)}
+    .source-poster img{display:block;width:100%;height:auto;max-height:280px;object-fit:contain}
+    @media(max-width:560px){.source-meta-layout{grid-template-columns:1fr}.source-poster{max-width:180px}}
     .live-toolbar{display:flex;gap:12px;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap}
     .live-pill{display:inline-flex;align-items:center;gap:8px;color:var(--green);font-size:12px;font-weight:750}
     .live-pill::before{content:'';width:7px;height:7px;background:currentColor;border-radius:50%}
@@ -35,6 +43,23 @@
       <div class="hint"><span>Find up to 8 Cyberloom links per public webpage</span><span id="timeDisplay">Timeout: 120 seconds</span></div><p class="small">If Stackmint asks you to verify you're human, open it in your own browser, finish verification, then paste the final MessyCloud URL here for link extraction.</p>
     </form>
 
+    <section id="sourceMetadataSection" class="hidden" aria-label="Source post details">
+      <div class="section-title"><h2>Source post details</h2><span class="small">EXTRACTED FROM ORIGINAL WEBPAGE</span></div>
+      <div class="card">
+        <div class="source-meta-layout">
+          <div class="source-meta-detail">
+            <div class="source-field-head"><span class="small">POST / MOVIE TITLE</span><button id="copySourceTitle" class="ghost" type="button">Copy title</button></div>
+            <div id="sourcePostTitle" class="source-meta-title"></div>
+            <div class="source-field-head" style="margin-top:20px"><span class="small">POSTER IMAGE SRC URL</span><button id="copySourcePoster" class="ghost" type="button">Copy image URL</button></div>
+            <a id="sourcePosterUrl" class="source-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+          </div>
+          <div id="sourceImageWrapper" class="source-poster hidden">
+            <img id="sourcePosterPreview" alt="Poster from source webpage" loading="lazy" referrerpolicy="no-referrer">
+          </div>
+        </div>
+        <p class="small" style="margin:14px 0 0">Title and image are read from the supplied source webpage. Copying an image URL does not download the image.</p>
+      </div>
+    </section>
     <section aria-label="Inspection stages"><div class="section-title"><h2>Inspection stages</h2><span class="status-pill"><i class="dot" id="stateDot"></i><span id="statusText">Ready to inspect</span></span></div>
       <div class="stage-grid" id="stages">
         <div class="stage" data-step="1" data-status="idle"><div class="stage-num">01</div><strong>Browser</strong><span>Launch Chromium</span></div>
@@ -130,7 +155,34 @@
       row.append(body,copy);$('links').appendChild(row);
       filterLinks();
     }
-    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;batchSources=[];batchCards=new Map();failedSources=[];$('retryFailed').classList.add('hidden');$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;sourceMetadata={title:'',poster_url:'',poster_alt:''};$('sourceMetadataSection').classList.add('hidden');$('sourcePostTitle').textContent='';$('sourcePosterUrl').textContent='';$('sourcePosterUrl').removeAttribute('href');$('sourcePosterPreview').removeAttribute('src');$('sourceImageWrapper').classList.add('hidden');batchSources=[];batchCards=new Map();failedSources=[];$('retryFailed').classList.add('hidden');$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    let sourceMetadata={title:'',poster_url:'',poster_alt:''};
+    function showSourceMetadata(data){
+      sourceMetadata={
+        title:typeof data?.title==='string'?data.title:'',
+        poster_url:typeof data?.poster_url==='string'?data.poster_url:'',
+        poster_alt:typeof data?.poster_alt==='string'?data.poster_alt:''
+      };
+      const {title,poster_url,poster_alt}=sourceMetadata;
+      if(!title&&!poster_url){$('sourceMetadataSection').classList.add('hidden');return;}
+      $('sourceMetadataSection').classList.remove('hidden');
+      $('sourcePostTitle').textContent=title||'No matching page title found';
+      $('copySourceTitle').disabled=!title;
+      $('copySourcePoster').disabled=!poster_url;
+      if(poster_url){
+        $('sourcePosterUrl').textContent=poster_url;
+        $('sourcePosterUrl').href=poster_url;
+        $('sourcePosterUrl').classList.remove('hidden');
+        $('sourceImageWrapper').classList.remove('hidden');
+        $('sourcePosterPreview').src=poster_url;
+        $('sourcePosterPreview').alt=poster_alt||'Source page poster';
+      }else{
+        $('sourcePosterUrl').removeAttribute('href');
+        $('sourcePosterUrl').textContent='No thumbnail image found';
+        $('sourceImageWrapper').classList.add('hidden');
+        $('sourcePosterPreview').removeAttribute('src');
+      }
+    }
     function renderDiscovered(items){
       batchSources=items;
       batchCards=new Map();
@@ -155,6 +207,7 @@
       card.status.append(label,a);
     }
     function handle(event){
+      if(event.type==='source_metadata'){showSourceMetadata(event);return;}
       if(event.type==='discovered'){renderDiscovered(event.links||[]);log('Discovered '+event.total+' Cyberloom short link(s)','success',event.time);return;}
       if(event.type==='item_start'){state('Inspecting '+event.index+'/'+event.total,'active');const card=batchCards.get(event.source);if(card){card.heading.textContent='Link '+event.index+' · Inspecting';}log('Inspecting link '+event.index+'/'+event.total+': '+event.source,'info',event.time);return;}
       if(event.type==='item_finish'){const card=batchCards.get(event.source);if(card){card.heading.textContent='Link '+event.index+' · '+(event.success?'Complete':'Failed');}return;}
@@ -210,7 +263,7 @@
       }
       const result=await response.json();
       if(!Array.isArray(result.links))throw Error('Discovery returned an invalid link list');
-      return result.links;
+      return result;
     }
     async function scanSingle(source,index,total){
       const response=await fetch('/api/inspect',{
@@ -296,7 +349,9 @@
       try{
         const sourceUrl=$('url').value.trim();
         log('Discovering Cyberloom links in '+sourceUrl);
-        const sources=await discoverUrls(sourceUrl);
+        const discovery=await discoverUrls(sourceUrl);
+        const sources=discovery.links;
+        showSourceMetadata(discovery.metadata||{});
         handle({type:'discovered',links:sources,total:sources.length});
         if(sources.length)await runSources(sources);
         else handle({type:'batch_done',total:0,completed:0,failed:0});
@@ -316,6 +371,8 @@
         busy=false;$('retryFailed').disabled=false;$('startButton').disabled=false;
       }
     });
+    $('copySourceTitle').addEventListener('click',()=>navigator.clipboard.writeText(sourceMetadata.title).then(()=>log('Source title copied','success')));
+    $('copySourcePoster').addEventListener('click',()=>navigator.clipboard.writeText(sourceMetadata.poster_url).then(()=>log('Poster URL copied','success')));
     $('toggleLive').addEventListener('click',()=>{
       pausedView=!pausedView;
       $('toggleLive').textContent=pausedView?'Resume view':'Pause view';
