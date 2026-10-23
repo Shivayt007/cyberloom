@@ -239,3 +239,31 @@ def test_messycloud_all_link_extraction_without_network():
     assert 'id="linkFilter"' in front
     assert "All MessyCloud links" in front
     assert "existingIndex!==-1" in front
+
+
+
+def test_link_event_kind_does_not_collide_with_event_type():
+    """Exercise the exact scenario that crashed after reaching MessyCloud."""
+    import ast
+    import json
+    import time
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
+    module = ast.parse(source)
+    declaration = next(
+        node for node in module.body
+        if isinstance(node, ast.FunctionDef) and node.name == "event"
+    )
+    ns = {"json": json, "time": time}
+    exec(compile(ast.Module(body=[declaration], type_ignores=[]),
+                 "event_test", "exec"), ns)
+    link = {
+        "url": "https://cdn.juicybits.site/files/example.mkv?token=abc&exp=1792767915",
+        "label": "[M1] DIRECT",
+        "kind": "M1 DIRECT",
+    }
+    parsed = json.loads(ns["event"]("link", **link).decode("utf-8"))
+    assert parsed["type"] == "link"
+    assert parsed["kind"] == "M1 DIRECT"
+    assert parsed["url"] == link["url"]
+    assert parsed["label"] == "[M1] DIRECT"
+    assert "time" in parsed
