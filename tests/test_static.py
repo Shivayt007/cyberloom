@@ -179,3 +179,63 @@ def test_m1_direct_url_preserves_signed_query():
     assert 'id="m1Section"' in (
         Path(__file__).resolve().parents[1] / "static/index.html"
     ).read_text()
+
+
+
+def test_messycloud_all_link_extraction_without_network():
+    """Offline fake page: signed M1, other server, generic page and data URL."""
+    import ast
+    import asyncio
+    import html
+    import re
+    from urllib.parse import urljoin, urlsplit
+
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
+    module = ast.parse(source)
+    names = {"is_m1_direct_label", "link_score", "collect_candidate",
+             "visible_download_link", "extract_links"}
+    nodes = [node for node in module.body
+             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and node.name in names]
+    class FakePlaywrightError(Exception):
+        pass
+    scope = {
+        "re": re, "html": html, "urljoin": urljoin, "urlsplit": urlsplit,
+        "PlaywrightError": FakePlaywrightError,
+        "SUSPICIOUS_LINK_KEYS": ("gofile.io", "download", "pixeldrain"),
+        "SKIP_PATHS": ("/login", "/register", "/terms", "/privacy"),
+    }
+    exec(compile(ast.Module(body=nodes, type_ignores=[]),
+                 "messycloud_links", "exec"), scope)
+    class Frame:
+        url = "https://messycloud.ink/files/demo"
+        async def evaluate(self, script):
+            assert "a[href]" in script
+            assert "data-download-url" in script
+            return [
+                {"url": "https://cdn.juicybits.site/files/test.mkv?token=a&amp;exp=1",
+                 "label": "[M1] DIRECT"},
+                {"url": "https://cdn2.example.org/stream?id=abc",
+                 "label": "[M2] STREAM"},
+                {"url": "/faq", "label": "FAQ"},
+                {"url": "https://download.example.org/example.zip",
+                 "label": "Download Backup"},
+                {"url": "https://cdn.juicybits.site/files/test.mkv?token=a&amp;exp=1",
+                 "label": "Generic server duplicate"},
+            ]
+        async def content(self):
+            return '<script>const file="https://cdn.juicybits.site/files/extra.zip?token=b&amp;exp=2";</script>'
+
+    class Page:
+        frames = [Frame()]
+    links = asyncio.run(scope["extract_links"](Page()))
+    by_url = {entry["url"]: entry for entry in links}
+    assert len(by_url) == 5
+    assert by_url["https://cdn.juicybits.site/files/test.mkv?token=a&exp=1"]["kind"] == "M1 DIRECT"
+    assert by_url["https://cdn2.example.org/stream?id=abc"]["kind"] == "Server link"
+    assert by_url["https://messycloud.ink/faq"]["kind"] == "Other link"
+    assert "https://cdn.juicybits.site/files/extra.zip?token=b&exp=2" in by_url
+    front = (Path(__file__).resolve().parents[1] / "static/index.html").read_text()
+    assert 'id="linkFilter"' in front
+    assert "All MessyCloud links" in front
+    assert "existingIndex!==-1" in front
