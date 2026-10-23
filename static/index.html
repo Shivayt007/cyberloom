@@ -40,6 +40,9 @@
       <div class="terminal"><div class="term-header"><span class="term-title"><span class="traffic"><b></b><b></b><b></b></span>cyberloom / console</span><div class="term-actions"><button class="ghost" type="button" id="copyLogs">Copy logs</button><button class="ghost" type="button" id="clearLogs">Clear</button></div></div>
         <div class="log-list" id="logList" aria-live="polite"><div class="log-placeholder">$ Ready. Enter a URL and click Inspect Link...</div></div></div>
     </section>
+    <section class="hidden" id="previewSection"><div class="section-title"><h2>VPS browser preview</h2><span class="small">CAPTURED IN CHROMIUM · NEVER SAVED ON SERVER</span></div>
+      <div class="card"><img id="browserPreview" alt="Screenshot of the page displayed in the VPS Chromium browser" style="width:100%;height:auto;border-radius:10px;border:1px solid var(--line)" loading="lazy"><p class="small" id="previewHelp">Compare this picture with the page on your phone. If they differ, the VPS may not be rendering the same verification step.</p></div>
+    </section>
     <section><div class="section-title"><h2>Links found <span id="count" class="small">(0)</span></h2><button class="ghost" id="copyLinks" type="button" disabled>Copy all links</button></div>
       <div id="destination" class="destination hidden"></div>
       <div id="links" class="links"><div class="empty">Detected links will appear here as the inspection runs.</div></div>
@@ -73,7 +76,7 @@
       const copy=document.createElement('button');copy.className='ghost';copy.type='button';copy.textContent='Copy';copy.addEventListener('click',()=>navigator.clipboard.writeText(link.url).then(()=>{copy.textContent='Copied'}));
       row.append(body,copy);$('links').appendChild(row);
     }
-    function reset(){links=[];logLines=[];$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('previewSection').classList.add('hidden');$('browserPreview').removeAttribute('src');$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
     function handle(event){
       if(event.type==='log'){log(event.message,event.level,event.time);return;}
       if(event.type==='stage'){stage(event.step,event.status,event.detail);state(event.status==='error'?'Attention needed':'Inspecting...',event.status==='error'?'error':'active');return;}
@@ -81,6 +84,14 @@
         const label=document.createElement('strong');label.textContent='✓ Verified destination: ';
         const a=document.createElement('a');a.href=event.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=event.url;
         $('destination').replaceChildren(label,a);$('destination').classList.remove('hidden');return;
+      }
+      if(event.type==='screenshot'){
+        if(typeof event.image==='string' && event.image.startsWith('data:image/jpeg;base64,')){
+          $('browserPreview').src=event.image;
+          $('previewSection').classList.remove('hidden');
+          log('Captured a browser preview from the VPS; see below the terminal.','warn',event.time);
+        }
+        return;
       }
       if(event.type==='manual'){
         const title=document.createElement('strong');title.textContent='Manual verification needed: ';
