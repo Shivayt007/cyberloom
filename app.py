@@ -305,6 +305,83 @@ async def click_continue(page) -> tuple[bool, str]:
     return False, "No actionable Continue control detected"
 
 
+async def close_visible_verification_popup(page) -> tuple[bool, str]:
+    """Use a popup's visible close/X control, if one exists.
+
+    This is a normal user-facing dismissal, not CAPTCHA completion.
+    Never delete overlay nodes, disable pointer events, force a click or
+    click the obscured Continue link through a verification layer.
+    """
+    modal_selectors = (
+        '[role="dialog"], [aria-modal="true"], .modal, .popup, '
+        '.dialog, .verification-modal, .signin-modal'
+    )
+    close_selectors = (
+        'button[aria-label*="close" i], [role="button"][aria-label*="close" i], '
+        '[title*="close" i], [data-dismiss="modal"], [data-bs-dismiss="modal"], '
+        '.modal-close, .popup-close, .close-modal, .close-button, '
+        '.modal .close, .popup .close, [role="dialog"] .close, '
+        'button:has-text("×"), button:has-text("✕"), '
+        'button:has-text("✖")'
+    )
+    saw_popup = False
+    for frame in page.frames:
+        try:
+            body_text = (await frame.locator("body").inner_text(timeout=900)).lower()
+        except (PlaywrightError, PlaywrightTimeout):
+            continue
+        has_verification_text = any(
+            marker in body_text for marker in (
+                "verify you're human", "verify you’re human", "i'm human",
+                "i’m human", "sign in", "human verification"
+            )
+        )
+        modal = frame.locator(modal_selectors)
+        try:
+            count = min(await modal.count(), 6)
+            visible_modals = []
+            for i in range(count):
+                block = modal.nth(i)
+                if await block.is_visible():
+                    visible_modals.append(block)
+        except (PlaywrightError, PlaywrightTimeout):
+            visible_modals = []
+        if not has_verification_text and not visible_modals:
+            continue
+        saw_popup = True
+
+        # Prefer an actual modal's controls. A global close selector is only
+        # permitted if the page visibly contains verification/sign-in text.
+        roots = visible_modals[:]
+        if has_verification_text:
+            roots.append(frame.locator("body"))
+        for root in roots:
+            buttons = root.locator(close_selectors)
+            try:
+                count = min(await buttons.count(), 12)
+            except (PlaywrightError, PlaywrightTimeout):
+                continue
+            for index in range(count):
+                close = buttons.nth(index)
+                try:
+                    if not await close.is_visible() or not await close.is_enabled():
+                        continue
+                    tag = await close.evaluate("el => el.tagName.toLowerCase()", timeout=800)
+                    # Playwright checks visibility, overlays and hit-testing:
+                    # a blocked close is NOT force-clicked.
+                    await close.click(timeout=2200)
+                    await asyncio.sleep(0.4)
+                    still_challenged = await needs_human_verification(page)
+                    if still_challenged:
+                        return True, "Clicked popup close <" + tag + ">; verification may still be active"
+                    return True, "Dismissed verification/sign-in popup via close <" + tag + ">"
+                except (PlaywrightError, PlaywrightTimeout):
+                    continue
+    if saw_popup:
+        return False, "Verification popup detected, but no accessible/receiving close control"
+    return False, "No visible verification popup or close control found"
+
+
 async def needs_human_verification(page) -> bool:
     """Recognize a visible verification prompt, without attempting to defeat it."""
     markers = (
@@ -466,6 +543,7 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
             last_click_by_tab = {}
             click_count_by_tab = {}
             last_click_report = {}
+            popup_close_attempts = set()
             last_stackmint_url = None
             stackmint_since = None
             snapshot_sent = False
@@ -505,6 +583,18 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
                             challenged = tab
                             break
                 if challenged is not None:
+                    # Only try a real, visible X/Close action once for each
+                    # tab and URL. The popup may legitimately be dismissible.
+                    key = (challenged, challenged.url)
+                    if key not in popup_close_attempts:
+                        popup_close_attempts.add(key)
+                        dismissed, details = await close_visible_verification_popup(challenged)
+                        yield event("log", level="info" if dismissed else "warn",
+                                    message=details)
+                        if dismissed:
+                            verification_page = None
+                            verification_since = None
+                            continue
                     if verification_page is challenged and verification_since is not None:
                         if time.monotonic() - verification_since >= 3:
                             diagnosis = await page_diagnostics(challenged)
@@ -617,6 +707,18 @@ async def inspect(url: str, timeout: int, settle: int, live: bool = True):
                     if now - last_click_by_tab.get(tab, 0) < 5:
                         continue
                     clicked, click_detail = await click_continue(tab)
+                    if not clicked and "blocker=" in click_detail:
+                        # If a popup overlays a Ready button, click its
+                        # ordinary close button rather than clicking through.
+                        key = (tab, tab.url)
+                        if key not in popup_close_attempts:
+                            popup_close_attempts.add(key)
+                            dismissed, details = await close_visible_verification_popup(tab)
+                            yield event("log", level="info" if dismissed else "warn",
+                                        message=details)
+                            if dismissed:
+                                last_click_by_tab[tab] = time.monotonic()
+                                continue
                     # Throttle failures too, so Playwright screenshot streaming
                     # stays responsive while an overlay blocks the control.
                     last_click_by_tab[tab] = time.monotonic()
