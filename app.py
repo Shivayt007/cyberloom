@@ -189,15 +189,28 @@ async def inspect(url: str, timeout: int, settle: int):
             yield event("stage", step=1, status="done", detail="Browser launched")
             yield event("stage", step=2, status="active", detail="Waiting for countdown / Continue")
             last_seen = ""
+            seen_tabs = {page}
             last_click = 0.0
             click_count = 0
             chosen = None
             while time.monotonic() < deadline:
                 pages = [p for p in context.pages if not p.is_closed()]
+                # Inspect every tab for the final destination, but do not let
+                # an advertising popup take over the original countdown tab.
+                for index, tab in enumerate(pages, start=1):
+                    if tab not in seen_tabs:
+                        seen_tabs.add(tab)
+                        yield event("log", level="warn", message=f"New tab #{index} opened: {tab.url[:250]}")
+                    if tab.url not in visited and tab.url not in ("about:blank", "chrome-error://chromewebdata/"):
+                        visited.append(tab.url)
+                        yield event("log", level="info", message=f"Tab #{index} URL: {tab.url[:250]}")
                 chosen = next((p for p in pages if target_url(p.url)), None)
                 if chosen:
                     break
-                best = next((p for p in reversed(pages) if p.url not in ("about:blank", "chrome-error://chromewebdata/")), page)
+                best = page if not page.is_closed() else next((p for p in pages if p.url not in ("about:blank", "chrome-error://chromewebdata/")), pages[0])
+                if len(pages) > 1 and not page.is_closed():
+                    with suppress(PlaywrightError):
+                        await page.bring_to_front()
                 if best.url != last_seen:
                     if last_seen:
                         yield event("log", level="info", message=f"Navigation: {best.url}")
