@@ -69,7 +69,7 @@
         <p class="small">Includes the original token and expiry parameters. Copy it while valid. This website does not automatically download files.</p>
       </div>
     </section>
-    <section><div class="section-title"><h2>Links found <span id="count" class="small">(0)</span></h2><button class="ghost" id="copyLinks" type="button" disabled>Copy all links</button></div>
+    <section><div class="section-title"><h2>All MessyCloud links <span id="count" class="small">(0)</span></h2><div class="term-actions"><select id="linkFilter" aria-label="Filter extracted links" class="ghost" style="max-width:160px"><option value="all">All links</option><option value="download">Download / Servers</option><option value="other">Other links</option></select><button class="ghost" id="copyLinks" type="button" disabled>Copy all links</button></div></div>
       <div id="destination" class="destination hidden"></div>
       <div id="links" class="links"><div class="empty">Detected links will appear here as the inspection runs.</div></div>
     </section>
@@ -89,9 +89,26 @@
       line.append(stamp,msg);$('logList').appendChild(line);$('logList').scrollTop=$('logList').scrollHeight;
     }
     function stage(number,status,detail){const el=stages[number-1];if(!el)return;el.dataset.status=status;if(detail)el.querySelector('span').textContent=detail;}
+    function filterLinks(){
+      const value=$('linkFilter').value;
+      const isDownload=(kind)=>['M1 DIRECT','Server link','Direct file','Likely download'].includes(kind);
+      document.querySelectorAll('#links .linkrow').forEach(el=>{
+        const kind=el.dataset.kind||'Other link';
+        el.classList.toggle('hidden',value==='download'?!isDownload(kind):value==='other'?isDownload(kind):false);
+      });
+    }
     function renderLink(link){
-      if(links.some(l=>l.url===link.url))return;
-      links.push(link);$('count').textContent='('+links.length+')';$('copyLinks').disabled=false;
+      const existingIndex=links.findIndex(l=>l.url===link.url);
+      if(existingIndex!==-1){
+        if(links[existingIndex].label===link.label&&links[existingIndex].kind===link.kind)return;
+        links[existingIndex]=link;
+        document.querySelectorAll('#links .linkrow').forEach(el=>{
+          if(el.dataset.url===link.url)el.remove();
+        });
+      }else{
+        links.push(link);
+      }
+      $('count').textContent='('+links.length+')';$('copyLinks').disabled=false;
       if(link.kind==='M1 DIRECT'){
         const linkLabel=document.createElement('strong');linkLabel.textContent=link.label||'[M1] DIRECT';
         const direct=document.createElement('a');direct.href=link.url;direct.textContent=link.url;direct.target='_blank';direct.rel='noopener noreferrer';direct.style.display='block';direct.style.marginTop='7px';direct.style.color='var(--blue)';
@@ -100,7 +117,7 @@
         $('copyM1').onclick=()=>navigator.clipboard.writeText(link.url).then(()=>log('M1 DIRECT URL copied to clipboard','success'));
       }
       if(links.length===1)$('links').replaceChildren();
-      const row=document.createElement('div');row.className='linkrow';
+      const row=document.createElement('div');row.className='linkrow';row.dataset.url=link.url;row.dataset.kind=link.kind;
       const body=document.createElement('div');body.className='linkbody';
       const label=document.createElement('b');label.textContent=link.label||'Discovered link';
       const anchor=document.createElement('a');anchor.href=link.url;anchor.target='_blank';anchor.rel='noopener noreferrer';anchor.textContent=link.url;
@@ -108,8 +125,9 @@
       body.append(label,anchor,kind);
       const copy=document.createElement('button');copy.className='ghost';copy.type='button';copy.textContent='Copy';copy.addEventListener('click',()=>navigator.clipboard.writeText(link.url).then(()=>{copy.textContent='Copied'}));
       row.append(body,copy);$('links').appendChild(row);
+      filterLinks();
     }
-    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
     function handle(event){
       if(event.type==='log'){log(event.message,event.level,event.time);return;}
       if(event.type==='stage'){stage(event.step,event.status,event.detail);state(event.status==='error'?'Attention needed':'Inspecting...',event.status==='error'?'error':'active');return;}
@@ -168,6 +186,7 @@
     });
     $('clearLogs').addEventListener('click',()=>{logLines=[];$('logList').innerHTML='<div class="log-placeholder">$ Logs cleared.</div>'});
     $('copyLogs').addEventListener('click',()=>navigator.clipboard.writeText(logLines.join('\n')).then(()=>log('Logs copied to clipboard')));
+    $('linkFilter').addEventListener('change',filterLinks);
     $('copyLinks').addEventListener('click',()=>navigator.clipboard.writeText(links.map(link=>link.url).join('\n')).then(()=>log('All detected links copied','success')));
   </script>
 </body>
