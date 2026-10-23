@@ -1127,20 +1127,90 @@ async def health():
 
 
 @app.post("/api/inspect")
-async def inspect_api(body: InspectRequest, request: Request, x_api_key: str | None = Header(default=None)):
-    verify_token(x_api_key)
-    safe_url = validate_start(body.url)
+async def inspect_api(body: InspectRequest, request: Request):
+    source_url = basic_public_url(body.url)
     if RUN_LOCK.locked():
-        raise HTTPException(status_code=429, detail="Another scan is currently running. Try again when it finishes.")
+        raise HTTPException(
+            status_code=429, detail="Another scan is running. Retry when it finishes."
+        )
+    client_id = request.client.host if request.client else "unknown"
+    enforce_public_rate_limit(client_id)
 
     async def feed():
         async with RUN_LOCK:
+            processed = completed = failed = 0
             try:
-                async for message in inspect(safe_url, body.timeout, body.settle, body.live):
+                if is_short_link(source_url) or target_url(source_url):
+                    links = [validate_start(source_url)]
+                    yield event("log", level="info",
+                                message="Direct link: skipping webpage discovery")
+                else:
+                    yield event("stage", step=1, status="active",
+                                detail="Discovering Cyberloom links")
+                    yield event("log", level="info",
+                                message=f"Searching source webpage {public_link_for_log(source_url)[:220]}")
+                    links, effective_source = await discover_from_website(source_url)
+                    yield event("log", level="info",
+                                message=f"Source inspected: {public_link_for_log(effective_source)[:220]}")
+                    yield event("stage", step=1, status="done",
+                                detail=f"Found {len(links)} Cyberloom links")
+
+                yield event("discovered", links=links, total=len(links),
+                            max_batch=MAX_BATCH_LINKS)
+                if not links:
+                    yield event("log", level="warn",
+                                message="No Cyberloom /l/ links in source HTML. Pages generating links only with JavaScript may require a direct Cyberloom URL.")
+                    yield event("batch_done", total=0, completed=0, failed=0)
+                    return
+
+                for index, link in enumerate(links, 1):
                     if await request.is_disconnected():
-                        break
-                    yield message
+                        return
+                    processed += 1
+                    yield event("item_start", index=index, total=len(links),
+                                source=link)
+                    succeeded = False
+                    encountered_error = False
+                    try:
+                        async for payload in inspect(link, body.timeout, body.settle,
+                                                     body.live):
+                            if await request.is_disconnected():
+                                return
+                            parsed = json.loads(payload)
+                            parsed.update(source=link, index=index,
+                                          total=len(links))
+                            typ = parsed.get("type")
+                            if typ == "done":
+                                succeeded = True
+                                parsed["type"] = "item_done"
+                            elif typ == "error":
+                                encountered_error = True
+                                parsed["type"] = "item_error"
+                            yield (json.dumps(parsed, ensure_ascii=False) + "\n").encode()
+                    except Exception as exc:
+                        encountered_error = True
+                        yield event("item_error", source=link, index=index,
+                                    total=len(links),
+                                    message=f"Unexpected inspection error: {type(exc).__name__}")
+                    if succeeded:
+                        completed += 1
+                    else:
+                        failed += 1
+                        if not encountered_error:
+                            yield event("item_error", source=link, index=index,
+                                        total=len(links),
+                                        message="This Cyberloom link did not complete.")
+                    yield event("item_finish", source=link, index=index,
+                                total=len(links), success=succeeded)
+                yield event("batch_done", total=processed,
+                            completed=completed, failed=failed)
+            except (httpx.HTTPError, OSError, ValueError, HTTPException) as exc:
+                yield event("error", message=f"Unable to discover Cyberloom links: {str(exc)[:220]}")
             except Exception as exc:
-                # Do not reveal secrets in an exception trace.
-                yield event("error", message=f"Unexpected inspection error: {type(exc).__name__}: {exc}")
-    return StreamingResponse(feed(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"})
+                yield event("error", message=f"Unexpected scanner error: {type(exc).__name__}")
+
+    return StreamingResponse(
+        feed(), media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no",
+                 "X-Content-Type-Options": "nosniff"}
+    )
