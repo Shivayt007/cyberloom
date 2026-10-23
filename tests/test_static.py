@@ -133,3 +133,49 @@ def test_ready_cta_href_is_checked_before_navigation():
     assert 'await ready_continue_href(tab)' in source
     assert 'await tab.goto(href, wait_until="domcontentloaded", timeout=18000)' in source
     assert "followed_continue_hrefs.add(href)" in source
+
+
+def test_m1_direct_url_preserves_signed_query():
+    """The user-supplied CDN example shape must survive scraping intact."""
+    import ast
+    import html
+    import re
+    from urllib.parse import urljoin, urlsplit
+
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
+    tree = ast.parse(source)
+    names = {"is_m1_direct_label", "link_score", "collect_candidate", "public_link_for_log"}
+    declarations = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in names
+    ]
+    scope = {
+        "re": re,
+        "html": html,
+        "urljoin": urljoin,
+        "urlsplit": urlsplit,
+        "SUSPICIOUS_LINK_KEYS": ("gofile.io", "download", "pixeldrain"),
+        "SKIP_PATHS": ("/login", "/register", "/terms", "/privacy"),
+    }
+    exec(compile(ast.Module(body=declarations, type_ignores=[]),
+                 "m1_extract_tests", "exec"), scope)
+
+    signed = (
+        "https://cdn.juicybits.site/files/example.zip?"
+        "token=test-token-123&exp=1792767679"
+    )
+    assert scope["is_m1_direct_label"]("[M1] DIRECT")
+    assert scope["is_m1_direct_label"]("M1 Direct")
+    assert not scope["is_m1_direct_label"]("M2 DIRECT")
+    assert scope["link_score"](signed, "[M1] DIRECT") == "M1 DIRECT"
+    assert scope["link_score"](signed, "Direct ZIP") == "Direct file"
+    results = {}
+    scope["collect_candidate"](signed.replace("&", "&amp;"),
+                               "[M1] DIRECT", "https://messycloud.ink/file", results)
+    assert signed in results
+    assert results[signed]["kind"] == "M1 DIRECT"
+    assert "token=" not in scope["public_link_for_log"](signed)
+    assert "exp=" not in scope["public_link_for_log"](signed)
+    assert 'id="m1Section"' in (
+        Path(__file__).resolve().parents[1] / "static/index.html"
+    ).read_text()
