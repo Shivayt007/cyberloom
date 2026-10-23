@@ -72,3 +72,15 @@ def test_continue_click_actionability_safety():
             if node.func.attr == "click" and isinstance(node.func.value, ast.Attribute):
                 if node.func.value.attr == "mouse":
                     assert not any(arg.arg == "timeout" for arg in node.keywords)
+
+ 
+def test_blocked_overlay_logging_and_throttle():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "app.py").read_text()
+    assert 'const blocker = !safe && hit ? {' in source
+    assert 'pointerEvents: hs.pointerEvents' in source
+    assert 'zIndex: hs.zIndex' in source
+    assert 'json.dumps(blocker, ensure_ascii=False)' in source
+    assert 'last_click_by_tab[tab] = time.monotonic()' in source
+    assert 'await control.click(timeout=1600)' in source
