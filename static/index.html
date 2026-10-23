@@ -61,7 +61,7 @@
         <p class="browser-footer">Near-live screenshots, not a remote-control session. Pause stops the picture on your phone; the scan continues. Screenshots are streamed only to the active inspection and are not saved as files on the VPS.</p>
       </div>
     </section>
-    <section id="batchSection"><div class="section-title"><h2>Cyberloom links &amp; final destinations <span id="batchCount" class="small">(0)</span></h2></div><div id="batchList" class="links"><div class="empty">Discovered Cyberloom links and their MessyCloud destinations will appear here.</div></div></section>
+    <section id="batchSection"><div class="section-title"><h2>Cyberloom links &amp; final destinations <span id="batchCount" class="small">(0)</span></h2><button class="ghost hidden" type="button" id="retryFailed">Retry failed links</button></div><div id="batchList" class="links"><div class="empty">Discovered Cyberloom links and their MessyCloud destinations will appear here.</div></div></section>
     <section class="hidden" id="m1Section"><div class="section-title"><h2>M1 Direct Download Link</h2><span class="small">SIGNED URL · MAY EXPIRE</span></div>
       <div class="card" style="border-color:#376e59">
         <div class="result-info"><strong style="color:var(--green)">✓ [M1] DIRECT URL FOUND</strong><button class="ghost" id="copyM1" type="button">Copy M1 URL</button></div>
@@ -78,7 +78,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const stages = Array.from(document.querySelectorAll('.stage'));
-    let links = [], logLines = [], busy = false, pausedView = false, latestFrame = null, frameCount = 0, batchSources = [], batchCards = new Map();
+    let links = [], logLines = [], busy = false, pausedView = false, latestFrame = null, frameCount = 0, batchSources = [], batchCards = new Map(), failedSources = [];
     const state = (label, mode='idle') => { $('statusText').textContent=label; $('stateDot').className='dot '+(mode==='idle'?'':mode); };
     function log(message, level='info', time=new Date().toLocaleTimeString('en-GB')) {
       if ($('logList').querySelector('.log-placeholder')) $('logList').replaceChildren();
@@ -130,7 +130,7 @@
       row.append(body,copy);$('links').appendChild(row);
       filterLinks();
     }
-    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;batchSources=[];batchCards=new Map();$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;batchSources=[];batchCards=new Map();failedSources=[];$('retryFailed').classList.add('hidden');$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
     function renderDiscovered(items){
       batchSources=items;
       batchCards=new Map();
@@ -195,18 +195,126 @@
       if(event.type==='done'){state('Complete · '+event.elapsed+'s','done');$('liveStatus').textContent='Finished · last browser frame';log('Inspection finished · '+links.length+' link(s) detected','success',event.time);return;}
       if(event.type==='error'){state('Inspection failed','error');$('liveStatus').textContent='Stopped · last browser frame';log(event.message,'error',event.time);if(event.visited?.length)log('Visited: '+event.visited.join(' → '),'warn',event.time);}
     }
-    $('scanForm').addEventListener('submit',async(e)=>{
-      e.preventDefault();if(busy)return;busy=true;reset();state('Starting...','active');$('startButton').disabled=true;$('buttonText').textContent='Inspecting...';
-      const url=$('url').value.trim();
+    // Batch discovery is a fast separate request. Every discovered link gets
+    // its own short-lived inspection stream. A broken mobile connection cannot
+    // erase prior results or force earlier links to run again.
+    async function discoverUrls(sourceUrl){
+      const response=await fetch('/api/discover',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:sourceUrl})
+      });
+      if(!response.ok){
+        let reason='Discovery failed (HTTP '+response.status+')';
+        try{reason=(await response.json()).detail||reason}catch{}
+        throw Error(reason);
+      }
+      const result=await response.json();
+      if(!Array.isArray(result.links))throw Error('Discovery returned an invalid link list');
+      return result.links;
+    }
+    async function scanSingle(source,index,total){
+      const response=await fetch('/api/inspect',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({url:source,timeout:120,settle:12,live:true})
+      });
+      if(!response.ok){
+        let reason='Inspection failed (HTTP '+response.status+')';
+        try{reason=(await response.json()).detail||reason}catch{}
+        throw Error(reason);
+      }
+      if(!response.body)throw Error('Live response stream unavailable');
+      const reader=response.body.getReader(),decoder=new TextDecoder();
+      let pending='',success=false,serverError=false;
       try{
-        const response=await fetch('/api/inspect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,timeout:120,settle:12,live:true})});
-        if(!response.ok){let detail='Request failed ('+response.status+')';try{detail=(await response.json()).detail||detail}catch{};throw Error(detail)}
-        if(!response.body)throw Error('Streaming is unavailable in this browser');
-        const reader=response.body.getReader(),decoder=new TextDecoder();let pending='';
-        while(true){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});const lines=pending.split('\n');pending=lines.pop();for(const line of lines){if(line.trim())handle(JSON.parse(line));}}
-        if(pending.trim())handle(JSON.parse(pending));
-        if($('stateDot').className.includes('active'))state('Stream closed','idle');
-      }catch(error){handle({type:'error',message:error.message||String(error)});}finally{busy=false;$('startButton').disabled=false;$('buttonText').textContent='Inspect Website';}
+        while(true){
+          const {value,done}=await reader.read();
+          if(done)break;
+          pending+=decoder.decode(value,{stream:true});
+          const lines=pending.split('\n');pending=lines.pop();
+          for(const line of lines){
+            if(!line.trim())continue;
+            const msg=JSON.parse(line);
+            // Individual API streams contain local batch lifecycle events.
+            // Keep the outer batch list and index from the source-discovery run.
+            if(msg.type==='discovered'||msg.type==='batch_done')continue;
+            msg.source=source;msg.index=index;msg.total=total;
+            if(msg.type==='item_done')success=true;
+            if(msg.type==='item_error')serverError=true;
+            handle(msg);
+          }
+        }
+        if(pending.trim()){
+          const msg=JSON.parse(pending);
+          if(msg.type!=='discovered'&&msg.type!=='batch_done'){
+            msg.source=source;msg.index=index;msg.total=total;
+            if(msg.type==='item_done')success=true;
+            if(msg.type==='item_error')serverError=true;
+            handle(msg);
+          }
+        }
+      }finally{
+        try{reader.releaseLock()}catch{}
+      }
+      if(!success)throw Error(serverError?'The redirect did not complete':'Connection ended before the link finished');
+      return true;
+    }
+    async function runSources(selected){
+      let done=0,failed=0;
+      failedSources=[];
+      $('retryFailed').classList.add('hidden');
+      for(const source of selected){
+        const index=batchSources.indexOf(source)+1,total=batchSources.length;
+        if(index<=0)continue;
+        let success=false;
+        handle({type:'item_start',source,index,total});
+        for(let attempt=1;attempt<=2;attempt++){
+          try{
+            await scanSingle(source,index,total);
+            success=true;
+            break;
+          }catch(error){
+            const reason=error.message||String(error);
+            if(attempt===1){
+              log('Connection/scan failed on link '+index+'. Retrying only this link once: '+reason,'warn');
+              await new Promise(resolve=>setTimeout(resolve,3500));
+            }else{
+              log('Link '+index+' failed after retry: '+reason,'error');
+            }
+          }
+        }
+        handle({type:'item_finish',source,index,total,success});
+        if(success)done++;
+        else {failed++;failedSources.push(source);}
+      }
+      handle({type:'batch_done',total:selected.length,completed:done,failed});
+      $('retryFailed').classList.toggle('hidden',failedSources.length===0);
+    }
+    $('scanForm').addEventListener('submit',async(e)=>{
+      e.preventDefault();if(busy)return;
+      busy=true;reset();state('Finding Cyberloom links...','active');
+      $('startButton').disabled=true;$('buttonText').textContent='Inspecting...';
+      try{
+        const sourceUrl=$('url').value.trim();
+        log('Discovering Cyberloom links in '+sourceUrl);
+        const sources=await discoverUrls(sourceUrl);
+        handle({type:'discovered',links:sources,total:sources.length});
+        if(sources.length)await runSources(sources);
+        else handle({type:'batch_done',total:0,completed:0,failed:0});
+      }catch(error){
+        handle({type:'error',message:error.message||String(error)});
+      }finally{
+        busy=false;$('startButton').disabled=false;
+        $('buttonText').textContent='Inspect Website';
+      }
+    });
+    $('retryFailed').addEventListener('click',async()=>{
+      if(busy||!failedSources.length)return;
+      busy=true;$('retryFailed').disabled=true;$('startButton').disabled=true;
+      const selected=[...failedSources];
+      try{await runSources(selected);}
+      finally{
+        busy=false;$('retryFailed').disabled=false;$('startButton').disabled=false;
+      }
     });
     $('toggleLive').addEventListener('click',()=>{
       pausedView=!pausedView;
