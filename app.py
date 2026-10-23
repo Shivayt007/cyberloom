@@ -77,7 +77,7 @@ def event(kind: str, **data) -> bytes:
 
 def is_m1_direct_label(label: str) -> bool:
     """Recognize a visible [M1] DIRECT server button."""
-    return bool(re.search(r"\[\s*m1\s*\]\s*direct\b", label or "", re.I))
+    return bool(re.search(r"\[?\s*m1\s*\]?\s*direct\b", label or "", re.I))
 
 
 def link_score(url: str, label: str = "") -> str:
