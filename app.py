@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
 import html
 import ipaddress
@@ -206,6 +207,56 @@ async def is_final_messycloud_page(page) -> bool:
     )
 
 
+async def page_diagnostics(page) -> dict:
+    """Report visible browser state without reading submitted form values."""
+    try:
+        return await page.evaluate("""() => {
+            const visible = el => {
+                const r = el.getBoundingClientRect();
+                const st = getComputedStyle(el);
+                return r.width > 0 && r.height > 0 &&
+                       st.visibility !== 'hidden' && st.display !== 'none';
+            };
+            const body = (document.body?.innerText || '').toLowerCase();
+            const buttons = Array.from(document.querySelectorAll(
+                'button, [role="button"], input[type="submit"], input[type="button"]'))
+                .filter(visible).slice(0, 12).map(el => ({
+                    text: (el.innerText || el.value || el.getAttribute('aria-label') || '')
+                        .trim().slice(0, 75),
+                    disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true'
+                }));
+            const frames = Array.from(document.querySelectorAll('iframe'));
+            const challenge = /(verify|verification|captcha|human)/i.test(body)
+                && /(human|captcha|challenge)/i.test(body)
+                || frames.some(el => /captcha|turnstile|challenge/i.test(el.src || ''));
+            return {
+                title: document.title.slice(0, 90),
+                headings: Array.from(document.querySelectorAll('h1,h2,h3'))
+                    .filter(visible).slice(0, 5)
+                    .map(el => (el.innerText || '').trim().slice(0, 85)),
+                buttons,
+                iframe_count: frames.length,
+                body_present: body.trim().length > 15,
+                human_challenge: challenge,
+                countdown_visible: /countdown|seconds remaining|wait \d+ seconds/i.test(body),
+                ready_visible: /continue to destination|ready!/i.test(body)
+            };
+        }""")
+    except (PlaywrightError, PlaywrightTimeout):
+        return {"error": "Page DOM could not be inspected"}
+
+
+async def preview_image(page) -> str | None:
+    """Small in-memory screenshot; no files or cookies are saved on the VPS."""
+    try:
+        data = await page.screenshot(type="jpeg", quality=48, full_page=False, timeout=4500)
+        if len(data) > 450000:
+            return None
+        return "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")
+    except (PlaywrightError, PlaywrightTimeout):
+        return None
+
+
 async def inspect(url: str, timeout: int, settle: int):
     started = time.monotonic()
     deadline = started + timeout
@@ -217,6 +268,17 @@ async def inspect(url: str, timeout: int, settle: int):
         browser = await playwright.chromium.launch(headless=True)
         context = await browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=False)
         dns_cache: dict[str, bool] = {}
+        rejected_hosts: set[str] = set()
+        failed_resource_hosts: dict[str, int] = {}
+
+        def on_request_failed(request):
+            try:
+                hostname = urlsplit(request.url).hostname or "unknown"
+                failed_resource_hosts[hostname] = failed_resource_hosts.get(hostname, 0) + 1
+            except (TypeError, ValueError):
+                pass
+
+        context.on("requestfailed", on_request_failed)
 
         async def public_only(route):
             parsed = urlsplit(route.request.url)
@@ -225,13 +287,18 @@ async def inspect(url: str, timeout: int, settle: int):
             elif await can_request_public(parsed.hostname or "", dns_cache):
                 await route.continue_()
             else:
+                if parsed.hostname:
+                    rejected_hosts.add(parsed.hostname.lower())
                 await route.abort()
 
         await context.route("**/*", public_only)
         page = await context.new_page()
         try:
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                first_response = await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                if first_response and first_response.status >= 400:
+                    yield event("log", level="warn",
+                                message=f"Initial page returned HTTP {first_response.status}; site may be rejecting automation")
             except PlaywrightTimeout:
                 yield event("log", level="warn", message="Initial navigation timed out; checking available pages")
             yield event("stage", step=1, status="done", detail="Browser launched")
@@ -247,6 +314,9 @@ async def inspect(url: str, timeout: int, settle: int):
             next_progress_log = time.monotonic() + 10
             last_click_by_tab = {}
             click_count_by_tab = {}
+            last_stackmint_url = None
+            stackmint_since = None
+            snapshot_sent = False
             while time.monotonic() < deadline:
                 pages = [p for p in context.pages if not p.is_closed()]
                 # Inspect every tab for the final destination, but do not let
@@ -302,6 +372,50 @@ async def inspect(url: str, timeout: int, settle: int):
                     verification_since = None
 
                 now = time.monotonic()
+                # Capture what headless Chromium actually sees. A URL alone
+                # cannot tell whether JS loaded, a button is disabled, or a
+                # human-verification iframe prevented progression.
+                stackmint = next(
+                    (tab for tab in pages if
+                     (urlsplit(tab.url).hostname or "").lower()
+                     in ("stackmint.ink", "www.stackmint.ink")),
+                    None
+                )
+                if stackmint and stackmint.url == last_stackmint_url:
+                    if stackmint_since is not None and not snapshot_sent and now - stackmint_since >= 18:
+                        snapshot_sent = True
+                        diagnosis = await page_diagnostics(stackmint)
+                        yield event("log", level="warn",
+                                    message="Stackmint has not navigated for 18s; browser state: " +
+                                            json.dumps(diagnosis, ensure_ascii=False)[:950])
+                        if rejected_hosts:
+                            yield event("log", level="warn",
+                                        message="Blocked non-public/unresolved resource hosts: " +
+                                                ", ".join(sorted(rejected_hosts))[:600])
+                        if failed_resource_hosts:
+                            yield event("log", level="warn",
+                                        message="Failed resource requests by host: " +
+                                                ", ".join(f"{host}={n}" for host, n in
+                                                          sorted(failed_resource_hosts.items()))[:600])
+                        preview = await preview_image(stackmint)
+                        if preview:
+                            yield event("screenshot", image=preview, url=stackmint.url)
+                        if diagnosis.get("human_challenge"):
+                            yield event("stage", step=2, status="error",
+                                        detail="Human verification displayed")
+                            yield event("manual", url=stackmint.url,
+                                        message="The VPS browser shows a human-verification challenge. Open the link in your own browser, complete it, then paste the final MessyCloud URL.")
+                            yield event("error", message="Stackmint human verification cannot be completed automatically.", visited=visited)
+                            return
+                elif stackmint:
+                    last_stackmint_url = stackmint.url
+                    stackmint_since = now
+                    snapshot_sent = False
+                else:
+                    last_stackmint_url = None
+                    stackmint_since = None
+                    snapshot_sent = False
+
                 if now >= next_progress_log:
                     active = " | ".join(
                         f"#{idx}: {tab.url[:135]}"
