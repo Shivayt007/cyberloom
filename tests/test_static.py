@@ -12,3 +12,20 @@ def test_ui_has_controls():
     html=(Path(__file__).resolve().parents[1]/"static/index.html").read_text()
     for text in ("id=\"url\"", "id=\"password\"", "id=\"logList\"", "id=\"links\"", "/api/inspect"):
         assert text in html
+
+
+def test_vps_browser_diagnostics_present():
+    root = Path(__file__).resolve().parents[1]
+    backend = (root / "app.py").read_text()
+    frontend = (root / "static/index.html").read_text()
+    assert "async def page_diagnostics(page)" in backend
+    assert "async def preview_image(page)" in backend
+    assert 'yield event("screenshot", image=preview' in backend
+    assert 'id="previewSection"' in frontend
+    assert "event.type==='screenshot'" in frontend
+
+
+def test_server_app_parses():
+    import ast
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text()
+    ast.parse(source)
