@@ -43,3 +43,9 @@ To continue, open the link in your normal browser, complete the human-verificati
 ## Redirect chains captured in the 2026-10-23 walkthrough
 
 A phone recording showed Inkvoyage's "Continue to Destination" page, transient Indiatimes pages, a second MessyCloud "Continue to Destination" page, and finally a MessyCloud file page showing an **M1 DIRECT** server option. Those intermediate domains may change. The automation now reports all open tabs, only clicks Continue on known redirect hosts (Cyberloom, Stackmint, Inkvoyage, and MessyCloud), and does **not** stop merely because MessyCloud's hostname appears: it waits for the actual file page. It never attempts to defeat a CAPTCHA. Server buttons implemented solely through JavaScript may need an additional, site-specific extractor.
+
+## When Stackmint stays on one tab
+
+If the browser remains at `www.stackmint.ink/go?t=...`, the app now records browser-state diagnostics **after 18 seconds without navigation**, including page title, headings, visible buttons, iframe count, failed-resource hostnames, and an in-memory JPEG preview displayed below the terminal. The preview is streamed only to the password-protected client and is not saved as a file on the server. Failed-resource counts and a blank preview help distinguish a loading problem from an access/verification gate.
+
+The web app does not automate CAPTCHA, email sign-in, or other human-verification steps. Use the link shown in the UI to verify in your own phone browser, continue to the destination, and paste the final MessyCloud URL in the inspector. A verification cookie in your phone is not transferred to the VPS.
