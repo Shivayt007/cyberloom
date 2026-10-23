@@ -147,8 +147,8 @@ async def click_continue(page) -> tuple[bool, str]:
     text and bubbles the user click to its handler, without forcing clicks
     through overlays or human-verification challenges.
     """
-    specific = re.compile(r"continue\\s+to\\s+destination", re.I)
-    generic = re.compile(r"\\b(continue|proceed|get\\s*link|open\\s*link|next\\s*step)\\b", re.I)
+    specific = re.compile(r"continue\s+to\s+destination", re.I)
+    generic = re.compile(r"\b(continue|proceed|get\s*link|open\s*link|next\s*step)\b", re.I)
     errors: list[str] = []
     detected: list[str] = []
 
@@ -276,7 +276,7 @@ async def page_diagnostics(page) -> dict:
                     tag: el.tagName.toLowerCase()
                 }));
             const ctas = Array.from(document.querySelectorAll('a, button, div, span, [role="button"]'))
-                .filter(el => visible(el) && /continue\\s+to\\s+destination/i.test(
+                .filter(el => visible(el) && /continue\s+to\s+destination/i.test(
                     (el.innerText || '').trim()) &&
                     (el.innerText || '').length < 100)
                 .slice(-6).map(el => ({
