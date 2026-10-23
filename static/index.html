@@ -52,9 +52,10 @@
             <div id="sourcePostTitle" class="source-meta-title"></div>
             <div class="source-field-head" style="margin-top:20px"><span class="small">POSTER IMAGE SRC URL</span><button id="copySourcePoster" class="ghost" type="button">Copy image URL</button></div>
             <a id="sourcePosterUrl" class="source-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+            <p id="sourcePosterStatus" class="small" role="status" style="margin:8px 0 0"></p>
           </div>
           <div id="sourceImageWrapper" class="source-poster hidden">
-            <img id="sourcePosterPreview" alt="Poster from source webpage" loading="lazy" referrerpolicy="no-referrer">
+            <img id="sourcePosterPreview" alt="Poster from source webpage" loading="eager" decoding="async" referrerpolicy="no-referrer">
           </div>
         </div>
         <p class="small" style="margin:14px 0 0">Title and image are read from the supplied source webpage. Copying an image URL does not download the image.</p>
@@ -155,8 +156,23 @@
       row.append(body,copy);$('links').appendChild(row);
       filterLinks();
     }
-    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;sourceMetadata={title:'',poster_url:'',poster_alt:''};$('sourceMetadataSection').classList.add('hidden');$('sourcePostTitle').textContent='';$('sourcePosterUrl').textContent='';$('sourcePosterUrl').removeAttribute('href');$('sourcePosterPreview').removeAttribute('src');$('sourceImageWrapper').classList.add('hidden');batchSources=[];batchCards=new Map();failedSources=[];$('retryFailed').classList.add('hidden');$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;sourceMetadata={title:'',poster_url:'',poster_alt:''};$('sourceMetadataSection').classList.add('hidden');$('sourcePostTitle').textContent='';$('sourcePosterUrl').textContent='';$('sourcePosterUrl').removeAttribute('href');$('sourcePosterPreview').removeAttribute('src');$('sourcePosterStatus').textContent='';$('sourceImageWrapper').classList.add('hidden');posterCandidates=[];posterCandidateIndex=0;batchSources=[];batchCards=new Map();failedSources=[];$('retryFailed').classList.add('hidden');$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
     let sourceMetadata={title:'',poster_url:'',poster_alt:''};
+    let posterCandidates=[],posterCandidateIndex=0;
+    function posterPreviewUrls(original){
+      const candidates=[original];
+      try{
+        const url=new URL(original);
+        if(url.hostname==='pbs.twimg.com' && url.searchParams.has('name')){
+          for(const size of ['medium','small']){
+            const variation=new URL(original);
+            variation.searchParams.set('name',size);
+            if(variation.href!==original)candidates.push(variation.href);
+          }
+        }
+      }catch{}
+      return [...new Set(candidates)];
+    }
     function showSourceMetadata(data){
       sourceMetadata={
         title:typeof data?.title==='string'?data.title:'',
@@ -164,24 +180,48 @@
         poster_alt:typeof data?.poster_alt==='string'?data.poster_alt:''
       };
       const {title,poster_url,poster_alt}=sourceMetadata;
-      if(!title&&!poster_url){$('sourceMetadataSection').classList.add('hidden');return;}
       $('sourceMetadataSection').classList.remove('hidden');
-      $('sourcePostTitle').textContent=title||'No matching page title found';
+      $('sourcePostTitle').textContent=title||'No source post title in page HTML';
       $('copySourceTitle').disabled=!title;
       $('copySourcePoster').disabled=!poster_url;
-      if(poster_url){
-        $('sourcePosterUrl').textContent=poster_url;
-        $('sourcePosterUrl').href=poster_url;
-        $('sourcePosterUrl').classList.remove('hidden');
-        $('sourceImageWrapper').classList.remove('hidden');
-        $('sourcePosterPreview').src=poster_url;
-        $('sourcePosterPreview').alt=poster_alt||'Source page poster';
-      }else{
+      posterCandidates=[];posterCandidateIndex=0;
+      const preview=$('sourcePosterPreview');
+      preview.onload=null;preview.onerror=null;
+      preview.removeAttribute('src');
+      if(!poster_url){
         $('sourcePosterUrl').removeAttribute('href');
-        $('sourcePosterUrl').textContent='No thumbnail image found';
+        $('sourcePosterUrl').textContent='Poster image URL not found';
         $('sourceImageWrapper').classList.add('hidden');
-        $('sourcePosterPreview').removeAttribute('src');
+        const entered=$('url').value.trim().toLowerCase();
+        if(entered.includes('cyberloom.best/l/')||entered.includes('messycloud.ink/')){
+          $('sourcePosterStatus').textContent='You entered a short/final link, not the original movie post. Paste the original forum webpage to extract its title and poster.';
+        }else{
+          $('sourcePosterStatus').textContent='The poster is missing from the HTML returned by this webpage, or is added later by JavaScript.';
+        }
+        return;
       }
+      $('sourcePosterUrl').textContent=poster_url;
+      $('sourcePosterUrl').href=poster_url;
+      $('sourceImageWrapper').classList.remove('hidden');
+      preview.alt=poster_alt||'Source page poster';
+      posterCandidates=posterPreviewUrls(poster_url);
+      $('sourcePosterStatus').textContent='Poster URL extracted. Loading preview...';
+      preview.onload=()=>{
+        $('sourceImageWrapper').classList.remove('hidden');
+        $('sourcePosterStatus').textContent='Poster preview loaded successfully.';
+      };
+      preview.onerror=()=>{
+        posterCandidateIndex++;
+        if(posterCandidateIndex<posterCandidates.length){
+          $('sourcePosterStatus').textContent='First image preview failed; trying a smaller image size...';
+          preview.src=posterCandidates[posterCandidateIndex];
+        }else{
+          $('sourceImageWrapper').classList.add('hidden');
+          $('sourcePosterStatus').textContent='The image host did not load this preview. The extracted image URL is still available above—tap it to test in a new tab or use Copy image URL.';
+          log('Image preview failed to load; use the original poster URL above.','warn');
+        }
+      };
+      preview.src=posterCandidates[0];
     }
     function renderDiscovered(items){
       batchSources=items;
