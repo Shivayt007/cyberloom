@@ -20,11 +20,11 @@
     <form id="scanForm" class="card" autocomplete="off">
       <div class="form-title">New inspection <span class="secure">🔒 Private access required</span></div>
       <div class="fields">
-        <div><label for="url">CYBERLOOM URL</label><input id="url" name="url" type="url" inputmode="url" required placeholder="https://www.cyberloom.best/l/..." value="https://www.cyberloom.best/l/f0DbK4aH" spellcheck="false"></div>
+        <div><label for="url">CYBERLOOM OR MESSYCLOUD URL</label><input id="url" name="url" type="url" inputmode="url" required placeholder="https://www.cyberloom.best/l/..." value="https://www.cyberloom.best/l/f0DbK4aH" spellcheck="false"></div>
         <div><label for="password">ACCESS PASSWORD</label><input id="password" name="password" type="password" placeholder="Password from EasyPanel environment" required autocomplete="off"></div>
       </div>
       <button class="main-button" id="startButton" type="submit"><span id="buttonText">Inspect Link</span><span aria-hidden="true">↗</span></button>
-      <div class="hint"><span>↗ Supports multi-step redirects and new tabs</span><span id="timeDisplay">Timeout: 120 seconds</span></div>
+      <div class="hint"><span>↗ Supports short links and final MessyCloud links</span><span id="timeDisplay">Timeout: 120 seconds</span></div><p class="small">If Stackmint asks you to verify you're human, open it in your own browser, finish verification, then paste the final MessyCloud URL here for link extraction.</p>
     </form>
 
     <section aria-label="Inspection stages"><div class="section-title"><h2>Inspection stages</h2><span class="status-pill"><i class="dot" id="stateDot"></i><span id="statusText">Ready to inspect</span></span></div>
@@ -81,6 +81,14 @@
         const label=document.createElement('strong');label.textContent='✓ Verified destination: ';
         const a=document.createElement('a');a.href=event.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=event.url;
         $('destination').replaceChildren(label,a);$('destination').classList.remove('hidden');return;
+      }
+      if(event.type==='manual'){
+        const title=document.createElement('strong');title.textContent='Manual verification needed: ';
+        const a=document.createElement('a');a.href=event.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Open Stackmint in my browser ↗';
+        const help=document.createElement('div');help.className='small';help.textContent=event.message;
+        $('destination').replaceChildren(title,a,help);$('destination').classList.remove('hidden');
+        state('Human verification needed','error');
+        log(event.message,'warn',event.time);return;
       }
       if(event.type==='link'){renderLink(event);return;}
       if(event.type==='done'){state('Complete · '+event.elapsed+'s','done');log('Inspection finished · '+links.length+' link(s) detected','success',event.time);return;}
