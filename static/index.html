@@ -25,15 +25,14 @@
 <body>
   <main class="shell">
     <nav class="nav"><div class="brand"><span class="brand-icon">⌁</span><span>Cyberloom<span style="color:var(--orange)">.</span></span></div><span class="version">LINK INSPECTOR / V1</span></nav>
-    <header class="hero"><span class="tag">POWERED BY PLAYWRIGHT</span><h1>Follow the link.<br><em>See every step.</em></h1><p>Paste a Cyberloom URL to watch its redirect journey, including Inkvoyage or Stackmint, and collect links from the final MessyCloud file page. Human-verification challenges require manual completion.</p></header>
+    <header class="hero"><span class="tag">POWERED BY PLAYWRIGHT</span><h1>Find every link.<br><em>Follow the destination.</em></h1><p>Paste any public webpage containing Cyberloom short links, or paste a Cyberloom/MessyCloud link directly. Find up to 8 Cyberloom links and inspect them one after another, with live browser previews and separate final results.</p></header>
     <form id="scanForm" class="card" autocomplete="off">
-      <div class="form-title">New inspection <span class="secure">🔒 Private access required</span></div>
+      <div class="form-title">New inspection <span class="secure">No password needed · limited public scans</span></div>
       <div class="fields">
-        <div><label for="url">CYBERLOOM OR MESSYCLOUD URL</label><input id="url" name="url" type="url" inputmode="url" required placeholder="https://www.cyberloom.best/l/..." value="https://www.cyberloom.best/l/f0DbK4aH" spellcheck="false"></div>
-        <div><label for="password">ACCESS PASSWORD</label><input id="password" name="password" type="password" placeholder="Password from EasyPanel environment" required autocomplete="off"></div>
+        <div><label for="url">PUBLIC WEBPAGE, CYBERLOOM, OR MESSYCLOUD URL</label><input id="url" name="url" type="url" inputmode="url" required placeholder="https://example.com/page-with-cyberloom-links" value="" spellcheck="false"></div>
       </div>
-      <button class="main-button" id="startButton" type="submit"><span id="buttonText">Inspect Link</span><span aria-hidden="true">↗</span></button>
-      <div class="hint"><span>↗ Supports short links and final MessyCloud links</span><span id="timeDisplay">Timeout: 120 seconds</span></div><p class="small">If Stackmint asks you to verify you're human, open it in your own browser, finish verification, then paste the final MessyCloud URL here for link extraction.</p>
+      <button class="main-button" id="startButton" type="submit"><span id="buttonText">Inspect Website</span><span aria-hidden="true">↗</span></button>
+      <div class="hint"><span>Find up to 8 Cyberloom links per public webpage</span><span id="timeDisplay">Timeout: 120 seconds</span></div><p class="small">If Stackmint asks you to verify you're human, open it in your own browser, finish verification, then paste the final MessyCloud URL here for link extraction.</p>
     </form>
 
     <section aria-label="Inspection stages"><div class="section-title"><h2>Inspection stages</h2><span class="status-pill"><i class="dot" id="stateDot"></i><span id="statusText">Ready to inspect</span></span></div>
@@ -59,9 +58,10 @@
             <div id="livePlaceholder" class="browser-placeholder">Start an inspection above to see what the VPS browser is doing.</div>
           </div>
         </div>
-        <p class="browser-footer">Near-live screenshots, not a video or remote-control session. Pause stops the picture on this phone; the inspector continues running. Frames are streamed to your password-protected session and are not stored as files on the VPS.</p>
+        <p class="browser-footer">Near-live screenshots, not a remote-control session. Pause stops the picture on your phone; the scan continues. Screenshots are streamed only to the active inspection and are not saved as files on the VPS.</p>
       </div>
     </section>
+    <section id="batchSection"><div class="section-title"><h2>Cyberloom links &amp; final destinations <span id="batchCount" class="small">(0)</span></h2></div><div id="batchList" class="links"><div class="empty">Discovered Cyberloom links and their MessyCloud destinations will appear here.</div></div></section>
     <section class="hidden" id="m1Section"><div class="section-title"><h2>M1 Direct Download Link</h2><span class="small">SIGNED URL · MAY EXPIRE</span></div>
       <div class="card" style="border-color:#376e59">
         <div class="result-info"><strong style="color:var(--green)">✓ [M1] DIRECT URL FOUND</strong><button class="ghost" id="copyM1" type="button">Copy M1 URL</button></div>
@@ -78,7 +78,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const stages = Array.from(document.querySelectorAll('.stage'));
-    let links = [], logLines = [], busy = false, pausedView = false, latestFrame = null, frameCount = 0;
+    let links = [], logLines = [], busy = false, pausedView = false, latestFrame = null, frameCount = 0, batchSources = [], batchCards = new Map();
     const state = (label, mode='idle') => { $('statusText').textContent=label; $('stateDot').className='dot '+(mode==='idle'?'':mode); };
     function log(message, level='info', time=new Date().toLocaleTimeString('en-GB')) {
       if ($('logList').querySelector('.log-placeholder')) $('logList').replaceChildren();
@@ -98,28 +98,31 @@
       });
     }
     function renderLink(link){
-      const existingIndex=links.findIndex(l=>l.url===link.url);
+      const source=link.source||'Direct inspection';
+      const existingIndex=links.findIndex(l=>l.url===link.url && (l.source||'Direct inspection')===source);
       if(existingIndex!==-1){
         if(links[existingIndex].label===link.label&&links[existingIndex].kind===link.kind)return;
         links[existingIndex]=link;
         document.querySelectorAll('#links .linkrow').forEach(el=>{
-          if(el.dataset.url===link.url)el.remove();
+          if(el.dataset.url===link.url && el.dataset.source===source)el.remove();
         });
       }else{
         links.push(link);
       }
       $('count').textContent='('+links.length+')';$('copyLinks').disabled=false;
       if(link.kind==='M1 DIRECT'){
-        const linkLabel=document.createElement('strong');linkLabel.textContent=link.label||'[M1] DIRECT';
+        const linkLabel=document.createElement('strong');linkLabel.textContent=(batchSources.length>1 ? 'Source #'+(link.index||'?')+' · ' : '')+(link.label||'[M1] DIRECT');
         const direct=document.createElement('a');direct.href=link.url;direct.textContent=link.url;direct.target='_blank';direct.rel='noopener noreferrer';direct.style.display='block';direct.style.marginTop='7px';direct.style.color='var(--blue)';
-        $('m1DirectResult').replaceChildren(linkLabel,direct);
+        const entry=document.createElement('div');entry.style.marginBottom='12px';entry.append(linkLabel,direct);
+        const prior=$('m1DirectResult').querySelectorAll('a');
+        if(!Array.from(prior).some(a=>a.href===direct.href))$('m1DirectResult').appendChild(entry);
         $('m1Section').classList.remove('hidden');
-        $('copyM1').onclick=()=>navigator.clipboard.writeText(link.url).then(()=>log('M1 DIRECT URL copied to clipboard','success'));
+        $('copyM1').onclick=()=>navigator.clipboard.writeText(links.filter(x=>x.kind==='M1 DIRECT').map(x=>x.url).join('\n')).then(()=>log('M1 DIRECT links copied','success'));
       }
       if(links.length===1)$('links').replaceChildren();
-      const row=document.createElement('div');row.className='linkrow';row.dataset.url=link.url;row.dataset.kind=link.kind;
+      const row=document.createElement('div');row.className='linkrow';row.dataset.url=link.url;row.dataset.kind=link.kind;row.dataset.source=source;
       const body=document.createElement('div');body.className='linkbody';
-      const label=document.createElement('b');label.textContent=link.label||'Discovered link';
+      const label=document.createElement('b');label.textContent=(batchSources.length>1?'#'+(link.index||'?')+' · ':'')+(link.label||'Discovered link');
       const anchor=document.createElement('a');anchor.href=link.url;anchor.target='_blank';anchor.rel='noopener noreferrer';anchor.textContent=link.url;
       const kind=document.createElement('span');kind.className='kind';kind.textContent=link.kind;
       body.append(label,anchor,kind);
@@ -127,11 +130,41 @@
       row.append(body,copy);$('links').appendChild(row);
       filterLinks();
     }
-    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function reset(){links=[];logLines=[];pausedView=false;latestFrame=null;frameCount=0;batchSources=[];batchCards=new Map();$('batchCount').textContent='(0)';$('batchList').innerHTML='<div class="empty">Searching for Cyberloom links...</div>';$('linkFilter').value='all';$('count').textContent='(0)';$('copyLinks').disabled=true;$('destination').classList.add('hidden');$('destination').replaceChildren();$('m1Section').classList.add('hidden');$('m1DirectResult').replaceChildren();$('browserPreview').removeAttribute('src');$('browserPreview').classList.add('hidden');$('livePlaceholder').classList.remove('hidden');$('livePlaceholder').textContent='Launching browser...';$('liveStatus').textContent='Connecting to Chromium';$('liveAddress').textContent='Chromium · connecting';$('toggleLive').textContent='Pause view';$('logList').replaceChildren();$('links').innerHTML='<div class="empty">Searching for links...</div>';stages.forEach((s,i)=>{s.dataset.status='idle';s.querySelector('span').textContent=['Launch Chromium','Wait & continue','Reach actual file page','Collect destination links'][i]});}
+    function renderDiscovered(items){
+      batchSources=items;
+      batchCards=new Map();
+      $('batchCount').textContent='('+items.length+')';
+      $('batchList').replaceChildren();
+      if(!items.length){$('batchList').innerHTML='<div class="empty">No Cyberloom /l/ links were found in this webpage HTML.</div>';return;}
+      items.forEach((source,i)=>{
+        const card=document.createElement('div');card.className='linkrow';card.style.flexDirection='column';card.style.gap='6px';
+        const heading=document.createElement('strong');heading.textContent='Link '+(i+1)+' · Queued';
+        const a=document.createElement('a');a.href=source;a.target='_blank';a.rel='noopener noreferrer';a.textContent=source;a.style.overflowWrap='anywhere';
+        const status=document.createElement('span');status.className='small';status.textContent='Final destination: pending';
+        card.append(heading,a,status);$('batchList').appendChild(card);
+        batchCards.set(source,{heading,status});
+      });
+    }
+    function updateBatchDestination(source,url){
+      const card=batchCards.get(source);if(!card)return;
+      card.heading.textContent=card.heading.textContent.replace(/ · .*/, ' · Destination found');
+      card.status.replaceChildren();
+      const label=document.createElement('span');label.textContent='MessyCloud: ';
+      const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=url;a.style.overflowWrap='anywhere';
+      card.status.append(label,a);
+    }
     function handle(event){
+      if(event.type==='discovered'){renderDiscovered(event.links||[]);log('Discovered '+event.total+' Cyberloom short link(s)','success',event.time);return;}
+      if(event.type==='item_start'){state('Inspecting '+event.index+'/'+event.total,'active');const card=batchCards.get(event.source);if(card){card.heading.textContent='Link '+event.index+' · Inspecting';}log('Inspecting link '+event.index+'/'+event.total+': '+event.source,'info',event.time);return;}
+      if(event.type==='item_finish'){const card=batchCards.get(event.source);if(card){card.heading.textContent='Link '+event.index+' · '+(event.success?'Complete':'Failed');}return;}
+      if(event.type==='batch_done'){state('Complete · '+event.completed+'/'+event.total+' successful','done');$('liveStatus').textContent='Finished · last browser frame';log('Batch complete: '+event.completed+' succeeded, '+event.failed+' failed','success',event.time);return;}
+      if(event.type==='item_done'){log('Finished link '+event.index+'/'+event.total,'success',event.time);return;}
+      if(event.type==='item_error'){log('Link '+event.index+' failed: '+event.message,'error',event.time);return;}
       if(event.type==='log'){log(event.message,event.level,event.time);return;}
       if(event.type==='stage'){stage(event.step,event.status,event.detail);state(event.status==='error'?'Attention needed':'Inspecting...',event.status==='error'?'error':'active');return;}
       if(event.type==='destination'){
+        updateBatchDestination(event.source,event.url);
         const label=document.createElement('strong');label.textContent='✓ Verified destination: ';
         const a=document.createElement('a');a.href=event.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=event.url;
         $('destination').replaceChildren(label,a);$('destination').classList.remove('hidden');return;
@@ -166,14 +199,14 @@
       e.preventDefault();if(busy)return;busy=true;reset();state('Starting...','active');$('startButton').disabled=true;$('buttonText').textContent='Inspecting...';
       const url=$('url').value.trim();
       try{
-        const response=await fetch('/api/inspect',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':$('password').value},body:JSON.stringify({url,timeout:120,settle:12,live:true})});
+        const response=await fetch('/api/inspect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,timeout:120,settle:12,live:true})});
         if(!response.ok){let detail='Request failed ('+response.status+')';try{detail=(await response.json()).detail||detail}catch{};throw Error(detail)}
         if(!response.body)throw Error('Streaming is unavailable in this browser');
         const reader=response.body.getReader(),decoder=new TextDecoder();let pending='';
         while(true){const {value,done}=await reader.read();if(done)break;pending+=decoder.decode(value,{stream:true});const lines=pending.split('\n');pending=lines.pop();for(const line of lines){if(line.trim())handle(JSON.parse(line));}}
         if(pending.trim())handle(JSON.parse(pending));
         if($('stateDot').className.includes('active'))state('Stream closed','idle');
-      }catch(error){handle({type:'error',message:error.message||String(error)});}finally{busy=false;$('startButton').disabled=false;$('buttonText').textContent='Inspect Link';}
+      }catch(error){handle({type:'error',message:error.message||String(error)});}finally{busy=false;$('startButton').disabled=false;$('buttonText').textContent='Inspect Website';}
     });
     $('toggleLive').addEventListener('click',()=>{
       pausedView=!pausedView;
